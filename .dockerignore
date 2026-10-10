@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.claude
+data
+uploads
+prototype
+docs
+*.log
+.env
+.env.*
+!.env.example
+Dockerfile
+docker-compose.yml
+README.md

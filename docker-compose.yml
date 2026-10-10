@@ -1,0 +1,16 @@
+# Local run:  docker compose up --build   ->  http://localhost:3000
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      INGEST_API_KEY: ${INGEST_API_KEY:-}
+      RETENTION_MONTHS: ${RETENTION_MONTHS:-6}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    volumes:
+      - recruitment-data:/data
+    restart: unless-stopped
+
+volumes:
+  recruitment-data:

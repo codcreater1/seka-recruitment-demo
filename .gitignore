@@ -22,3 +22,10 @@ build/
 Thumbs.db
 .vscode/
 .idea/
+
+# local tool config
+.claude/
+*.log
+
+*.tsbuildinfo
+next-env.d.ts
