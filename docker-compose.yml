@@ -6,6 +6,7 @@ services:
       - "3000:3000"
     environment:
       INGEST_API_KEY: ${INGEST_API_KEY:-}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
       RETENTION_MONTHS: ${RETENTION_MONTHS:-6}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
     volumes:

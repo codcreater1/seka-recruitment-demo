@@ -43,6 +43,7 @@ npm run typecheck
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `DEMO_PASSWORD` | empty (no gate) | Password gate (HTTP Basic auth, any user name) for a public demo |
 | `INGEST_API_KEY` | empty (endpoint disabled) | Secret for `POST /api/ingest` |
 | `RETENTION_MONTHS` | `6` | Age after which a profile is flagged as past retention |
 | `SEED_DEMO_DATA` | `true` | Load the fictional candidates when the database is empty |
@@ -53,7 +54,8 @@ npm run typecheck
 1. New resource, source: this GitHub repository, build pack **Dockerfile**.
 2. Port: `3000`. Health check path: `/api/health`.
 3. Persistent storage: add a volume with destination **`/data`** (database and CVs live there).
-4. Environment variables: at least `INGEST_API_KEY` if you want the e-mail intake.
+4. Environment variables: `DEMO_PASSWORD` (the demo has no sign-in, set a password before sharing the link) and, for the e-mail intake, `INGEST_API_KEY`.
+   Serve the app over HTTPS (assign a domain in Coolify) so the password is not sent in clear text.
 5. Deploy. On first start the database is created and filled with the demo candidates.
 
 To try the image locally: `docker compose up --build`.
