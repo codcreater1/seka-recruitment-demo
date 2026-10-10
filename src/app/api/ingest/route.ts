@@ -52,6 +52,7 @@ export async function POST(req: Request) {
     receivedAt: body.receivedAt,
     channel: 'E-mail',
     actor: 'webhook',
+    autoAck: true,
   });
   return json({ ...result, attachmentAccepted: !!buffer }, 201);
 }

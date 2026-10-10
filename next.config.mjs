@@ -8,7 +8,7 @@ const nextConfig = {
   output: 'standalone',
   // pin the tracing root so the standalone build has the same layout on every machine
   outputFileTracingRoot: root,
-  serverExternalPackages: ['better-sqlite3'],
+  serverExternalPackages: ['better-sqlite3', 'mailparser', 'nodemailer'],
   poweredByHeader: false,
 };
 

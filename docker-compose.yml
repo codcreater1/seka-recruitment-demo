@@ -9,6 +9,12 @@ services:
       DEMO_PASSWORD: ${DEMO_PASSWORD:-}
       RETENTION_MONTHS: ${RETENTION_MONTHS:-6}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     volumes:
       - recruitment-data:/data
     restart: unless-stopped

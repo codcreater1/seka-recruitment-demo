@@ -7,6 +7,9 @@ All people, employers and contact data are fictional.
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
+from email.utils import format_datetime, formataddr
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -90,7 +93,7 @@ CANDIDATES = [
     ("Anna Kowalczyk", "Warszawa", 0, "new", 0, 4),
     ("Piotr Zieliński", "Warszawa", 3, "screening", 2, 6),
     ("Katarzyna Wójcik", "Warszawa", 5, "interview", 6, 8),
-    ("Dorota Jaworska", "Warszawa", 2, "new", 1, 6),
+    ("Dorota Jaworska", "Warszawa", 2, "new", 9, 6),
     ("Marcin Lewandowski", "Kraków", 1, "new", 1, 2),
     ("Joanna Kamińska", "Kraków", 2, "screening", 4, 5),
     ("Tomasz Dąbrowski", "Kraków", 0, "rejected", 12, 1),
@@ -98,7 +101,7 @@ CANDIDATES = [
     ("Paweł Woźniak", "Wrocław", 1, "new", 0, 0),
     ("Ewa Jankowska", "Wrocław", 6, "screening", 3, 0),
     ("Michał Mazur", "Gdańsk", 3, "offer", 9, 7),
-    ("Natalia Krawczyk", "Gdańsk", 0, "new", 1, 2),
+    ("Natalia Krawczyk", "Gdańsk", 0, "new", 10, 2),
     ("Karolina Piotrowska", "Gdańsk", 2, "hired", 21, 9),
     ("Jakub Grabowski", "Poznań", 5, "screening", 7, 4),
     ("Monika Pawłowska", "Poznań", 4, "rejected", 14, 1),
@@ -107,6 +110,8 @@ CANDIDATES = [
     ("Rafał Wieczorek", "Katowice", 1, "rejected", 18, 3),
     ("Barbara Sikora", "Wrocław", 5, "rejected", 236, 6),
     ("Adam Czarnecki", "Warszawa", 1, "rejected", 201, 2),
+    ("Karol Nowakowski", None, 0, "new", 1, 3),  # no city anywhere in the CV: needs review
+    ("Anna Kowalczyk", "Kraków", 4, "new", 0, 4),  # second application, same e-mail: possible duplicate
 ]
 NO_RODO = {7, 15}  # indexes whose CV has no consent clause
 NOTES = {
@@ -127,6 +132,8 @@ INCOMING = [
     ("Izabela Nowicka", "Wrocław", 0, 3, False, "text"),
     ("Bartosz Kaczmarek", "Poznań", 2, 4, True, "text"),
     ("Julia Maciejewska", "Katowice", 4, 1, True, "scan"),
+    ("Patryk Zawadzki", "Gdańsk", 2, 6, True, "eml"),
+    ("Oliwia Bielecka", "Warszawa", 5, 3, True, "eml"),
 ]
 
 
@@ -153,7 +160,7 @@ def build_cv_pdf(path, name, city, pos, years, i, rodo, future_consent=False):
     bullet = ParagraphStyle("bullet", parent=base, leftIndent=12, bulletIndent=2)
 
     street = "%s %d/%d" % (STREETS[i % len(STREETS)], 3 + i * 2 % 40, 1 + i % 12)
-    postal = POSTAL[city] % (10 + i * 7 % 90)
+    postal = POSTAL[city] % (10 + i * 7 % 90) if city else ""
     email = slug(name) + "@example.com"
     story = []
     if i % 2 == 0:
@@ -162,7 +169,7 @@ def build_cv_pdf(path, name, city, pos, years, i, rodo, future_consent=False):
         Paragraph(name, h1),
         Paragraph(POSITIONS[pos], head),
         Spacer(1, 6),
-        Paragraph("%s, %s %s" % (street, postal, city), base),
+    ] + ([Paragraph("%s, %s %s" % (street, postal, city), base)] if city else []) + [
         Paragraph("E-mail: %s" % email, base),
         Paragraph("Tel.: %s" % phone_for(i), base),
     ]
@@ -193,7 +200,7 @@ def build_cv_pdf(path, name, city, pos, years, i, rodo, future_consent=False):
         story.append(Paragraph(BULLETS[pos][-1], bullet, bulletText="•"))
     story += [
         Paragraph("WYKSZTAŁCENIE", sec),
-        Paragraph("<b>%s</b>, %s" % (FIELD[pos], UNI[city]), base),
+        Paragraph("<b>%s</b>, %s" % (FIELD[pos], UNI[city] if city else "Uniwersytet Przyrodniczy"), base),
         Paragraph("studia magisterskie, %s" % ("ukończone" if years else "w trakcie"), small),
         Paragraph("UMIEJĘTNOŚCI", sec),
         Paragraph(", ".join(SKILLS[pos]), base),
@@ -203,6 +210,19 @@ def build_cv_pdf(path, name, city, pos, years, i, rodo, future_consent=False):
     doc = SimpleDocTemplate(path, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm, bottomMargin=18 * mm,
                             title="CV " + name, author=name)
     doc.build(story)
+
+
+def make_eml(path, name, subject, pdf_path, hours_ago):
+    msg = EmailMessage()
+    msg["From"] = formataddr((name, slug(name) + "@example.com"))
+    msg["To"] = "kariera@example.com"
+    msg["Subject"] = subject
+    msg["Date"] = format_datetime(datetime.now(timezone.utc) - timedelta(hours=hours_ago))
+    msg.set_content("Dzień dobry,\n\nw załączeniu przesyłam CV w odpowiedzi na ogłoszenie.\n\nZ poważaniem\n" + name + "\n")
+    with open(pdf_path, "rb") as fh:
+        msg.add_attachment(fh.read(), maintype="application", subtype="pdf", filename=os.path.basename(pdf_path))
+    with open(path, "wb") as fh:
+        fh.write(bytes(msg))
 
 
 def make_scan(src_pdf, dst_pdf):
@@ -227,10 +247,12 @@ def main():
         fname = "%s.pdf" % cid
         build_cv_pdf(os.path.join(CV_DIR, fname), name, city, pos, years, i, rodo, future_consent=(i % 4 == 0))
         out["candidates"].append({
-            "id": cid, "name": name, "city": city, "position": POSITIONS[pos], "status": status,
+            "id": cid, "name": name, "city": city or "Do przypisania", "position": POSITIONS[pos], "status": status,
             "daysAgo": days, "years": years, "email": slug(name) + "@example.com", "phone": phone_for(i),
-            "subject": ("Aplikacja – %s (%s)" % (POSITIONS[pos], city)) if i % 3 == 1 else "Aplikacja na stanowisko: %s" % POSITIONS[pos],
-            "cityBasis": ["ogłoszenia (wybrane stanowisko)", "tytułu wiadomości", "adresu w CV"][i % 3],
+            "subject": "Aplikacja o pracę" if city is None else (("Aplikacja – %s (%s)" % (POSITIONS[pos], city)) if i % 3 == 1 else "Aplikacja na stanowisko: %s" % POSITIONS[pos]),
+            "cityBasis": "nie ustalono" if city is None else ["ogłoszenia (wybrane stanowisko)", "tytułu wiadomości", "adresu w CV"][i % 3],
+            "needsReview": city is None,
+            "duplicateOf": "seed-00" if (name == "Anna Kowalczyk" and i > 0) else None,
             "rodo": rodo, "file": "cv/" + fname, "downloadName": "CV_%s.pdf" % file_slug(name),
             "rating": RATINGS.get(status), "note": NOTES.get(i),
             "interview": ({"inDays": INTERVIEWS[i][0], "time": INTERVIEWS[i][1]} if i in INTERVIEWS else None),
@@ -239,17 +261,28 @@ def main():
         i = 100 + j
         fname = "CV_%s.pdf" % file_slug(name)
         path = os.path.join(IN_DIR, fname)
+        subject = "Aplikacja – %s (%s)" % (POSITIONS[pos], city) if j % 2 == 0 else "Aplikacja na stanowisko: %s" % POSITIONS[pos]
         if kind == "scan":
             tmp = path + ".src.pdf"
             build_cv_pdf(tmp, name, city, pos, years, i, rodo)
             make_scan(tmp, path)
             os.remove(tmp)
+        elif kind == "eml":
+            tmp_pdf = os.path.join(IN_DIR, fname)
+            build_cv_pdf(tmp_pdf, name, city, pos, years, i, rodo)
+            eml_name = "wiadomosc_%s.eml" % file_slug(name)
+            make_eml(os.path.join(IN_DIR, eml_name), name, subject, tmp_pdf, 3 + j)
+            os.remove(tmp_pdf)  # the PDF lives inside the .eml
+            out["incoming"].append({
+                "name": name, "file": "incoming/" + eml_name, "downloadName": eml_name, "kind": "eml",
+                "from": slug(name) + "@example.com", "subject": subject,
+            })
+            continue
         else:
             build_cv_pdf(path, name, city, pos, years, i, rodo)
         out["incoming"].append({
             "name": name, "file": "incoming/" + fname, "downloadName": fname, "kind": kind,
-            "from": slug(name) + "@example.com",
-            "subject": "Aplikacja – %s (%s)" % (POSITIONS[pos], city) if j % 2 == 0 else "Aplikacja na stanowisko: %s" % POSITIONS[pos],
+            "from": slug(name) + "@example.com", "subject": subject,
         })
     with open(os.path.join(SEED_DIR, "seed.json"), "w", encoding="utf-8") as fh:
         json.dump(out, fh, ensure_ascii=False, indent=2)

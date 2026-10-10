@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { statusLabel, type StatusId } from './domain';
+import { EMAIL_TEMPLATES, statusLabel, type StatusId } from './domain';
 
 export const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 export const FILES_DIR = path.join(DATA_DIR, 'files');
@@ -50,6 +50,19 @@ CREATE TABLE IF NOT EXISTS events (
   actor TEXT NOT NULL,
   text TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS emails (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  candidate_id TEXT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  at TEXT NOT NULL,
+  template TEXT NOT NULL,
+  to_addr TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  error TEXT NOT NULL DEFAULT ''
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS cv_fts USING fts5(candidate_id UNINDEXED, name, position, body);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL,
@@ -64,6 +77,8 @@ type SeedCandidate = {
   email: string; phone: string; subject: string; cityBasis: string; rodo: boolean; file: string;
   downloadName: string; rating: number | null; note: string | null;
   interview: { inDays: number; time: string } | null;
+  needsReview?: boolean;
+  duplicateOf?: string | null;
 };
 
 const PATHS: Record<string, StatusId[]> = {
@@ -82,11 +97,14 @@ function seedDemo(db: Database.Database) {
   const now = Date.now();
   const insC = db.prepare(`INSERT INTO candidates
     (id, name, email, phone, city, position, status, received_at, channel, from_addr, subject, city_basis, rodo,
-     file_id, file_name, file_size, rating, interview_at, rejection_sent)
+     file_id, file_name, file_size, rating, interview_at, rejection_sent, needs_review, duplicate_of)
     VALUES (@id, @name, @email, @phone, @city, @position, @status, @received_at, 'E-mail', @email, @subject, @city_basis,
-     @rodo, @file_id, @file_name, @file_size, @rating, @interview_at, @rejection_sent)`);
+     @rodo, @file_id, @file_name, @file_size, @rating, @interview_at, @rejection_sent, @needs_review, @duplicate_of)`);
   const insE = db.prepare('INSERT INTO events (candidate_id, at, actor, text) VALUES (?, ?, ?, ?)');
   const insN = db.prepare('INSERT INTO notes (candidate_id, author, text, created_at) VALUES (?, ?, ?, ?)');
+  const insM = db.prepare(
+    "INSERT INTO emails (candidate_id, at, template, to_addr, subject, body, status, actor) VALUES (?, ?, ?, ?, ?, ?, 'simulated', ?)",
+  );
 
   const run = db.transaction(() => {
     seed.candidates.forEach((c, i) => {
@@ -106,10 +124,14 @@ function seedDemo(db: Database.Database) {
         city_basis: c.cityBasis, rodo: c.rodo ? (i % 4 === 0 ? 2 : 1) : 0, file_id: size ? c.id : null,
         file_name: size ? c.downloadName : null, file_size: size || null, rating: c.rating,
         interview_at: interviewAt, rejection_sent: c.status === 'rejected' ? 1 : 0,
+        needs_review: c.needsReview ? 1 : 0, duplicate_of: c.duplicateOf ?? null,
       });
       insE.run(c.id, new Date(received).toISOString(), 'system', 'Otrzymano zgłoszenie e-mailem');
       insE.run(c.id, new Date(received + 6e4).toISOString(), 'system', 'Utworzono profil kandydata (automatycznie z załącznika PDF)');
       insE.run(c.id, new Date(received + 2 * 6e4).toISOString(), 'system', 'Wysłano potwierdzenie przyjęcia zgłoszenia (automatyczna odpowiedź, symulacja)');
+      if (c.duplicateOf) {
+        insE.run(c.id, new Date(received + 3 * 6e4).toISOString(), 'system', 'Wykryto możliwy duplikat: ten adres e-mail ma już profil w systemie');
+      }
       let prev: StatusId = 'new';
       (PATHS[c.status] || []).forEach((st, k) => {
         insE.run(c.id, at(20 + k * 30), 'Agnieszka (HR)', `Zmiana statusu: ${statusLabel(prev)} → ${statusLabel(st)}`);
@@ -119,6 +141,13 @@ function seedDemo(db: Database.Database) {
         insE.run(c.id, at(20 + (PATHS.rejected.length) * 30 + 1), 'Agnieszka (HR)', 'Wysłano podziękowanie za udział w rekrutacji (symulacja)');
       }
       if (c.note) insN.run(c.id, 'Agnieszka (HR)', c.note, at(24));
+      const mail = (template: 'ack' | 'rejection' | 'invite', when: string, actor: string) => {
+        const t = EMAIL_TEMPLATES[template];
+        insM.run(c.id, when, template, c.email, t.subject, t.body({ position: c.position, interviewAt }), actor);
+      };
+      mail('ack', new Date(received + 2 * 6e4).toISOString(), 'system');
+      if (c.status === 'rejected') mail('rejection', at(20 + PATHS.rejected.length * 30 + 1), 'Agnieszka (HR)');
+      if (c.status === 'interview' && interviewAt) mail('invite', at(20 + 2 * 30 + 2), 'Agnieszka (HR)');
     });
     db.prepare('INSERT INTO audit_log (at, actor, action, detail) VALUES (?, ?, ?, ?)')
       .run(new Date().toISOString(), 'system', 'seed', `Załadowano ${seed.candidates.length} przykładowych zgłoszeń`);
@@ -141,6 +170,8 @@ export function getDb(): Database.Database {
   const count = (db.prepare('SELECT COUNT(*) AS n FROM candidates').get() as { n: number }).n;
   if (count === 0 && process.env.SEED_DEMO_DATA !== 'false') seedDemo(db);
   globalThis.__sekaDb = db;
+  // fill in CV text for seeded profiles and build the search index (does not block start-up)
+  void import('./search').then((m) => m.backfillIndex()).catch(() => undefined);
   return db;
 }
 

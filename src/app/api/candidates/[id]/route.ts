@@ -76,13 +76,6 @@ export async function PATCH(req: Request, { params }: Ctx) {
     set.push('duplicate_of = NULL');
     events.push('Oznaczono jako niebędące duplikatem');
   }
-  if (body.sendRejection === true) {
-    const status = 'status' in body ? body.status : row.status;
-    if (status !== 'rejected') return badRequest('Podziękowanie można wysłać tylko dla odrzuconego zgłoszenia.');
-    set.push('rejection_sent = 1');
-    events.push('Wysłano podziękowanie za udział w rekrutacji (symulacja)');
-  }
-
   if (set.length) {
     getDb().prepare(`UPDATE candidates SET ${set.join(', ')} WHERE id = ?`).run(...args, id);
     events.forEach((e) => addEvent(id, session.name, e));

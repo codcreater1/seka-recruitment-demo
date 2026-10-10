@@ -2,12 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SEED_DIR } from '@/lib/db';
 import { badRequest, forbidden, getSession, json } from '@/lib/auth';
-import { ingestApplication } from '@/lib/candidates';
+import { ingestApplication, ingestEml } from '@/lib/candidates';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type Sample = { name: string; file: string; downloadName: string; kind: 'text' | 'scan'; from: string; subject: string };
+type Sample = { name: string; file: string; downloadName: string; kind: 'text' | 'scan' | 'eml'; from: string; subject: string };
 
 function samples(): Sample[] {
   try {
@@ -30,6 +30,9 @@ export async function POST(req: Request) {
   const sample = samples().find((s) => s.file === body?.file);
   if (!sample) return badRequest('Nieznana próbka.');
   const buffer = new Uint8Array(fs.readFileSync(path.join(SEED_DIR, sample.file)));
+  if (sample.kind === 'eml') {
+    return json(await ingestEml(buffer, 'symulacja', true), 201);
+  }
   const result = await ingestApplication({
     buffer,
     fileName: sample.downloadName,
@@ -37,6 +40,7 @@ export async function POST(req: Request) {
     subject: sample.subject,
     channel: 'E-mail',
     actor: 'symulacja',
+    autoAck: true,
   });
   return json(result, 201);
 }

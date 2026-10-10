@@ -13,15 +13,19 @@ Branch managers get access to the candidates of their own city only.
 
 | Area | Behaviour |
 |---|---|
-| Applications | List grouped by city tabs, status filters, search, sorting |
-| Profile | Contact data, source e-mail, embedded CV (PDF), notes, history, rating, interview date |
-| Status pipeline | Nowa, W weryfikacji, Rozmowa, Oferta, Zatrudniony/a, Odrzucona; rejection template (sending is simulated) |
-| Intake | `POST /api/ingest` (Power Automate), manual PDF upload, or one of five bundled sample CVs |
+| Views | List with profile, Kanban board (drag a card to change status), summary dashboard |
+| Applications | City tabs, status filters, quick filters, sorting, CSV export |
+| Search | Name, position, e-mail and the **text of the CVs** (SQLite FTS5, diacritics-insensitive) |
+| Profile | Contact data, source e-mail, embedded CV (PDF), facts read from the CV, notes, history, rating, interview date |
+| Status pipeline | Nowa, W weryfikacji, Rozmowa, Oferta, Zatrudniony/a, Odrzucona |
+| Intake | `POST /api/ingest` (Power Automate), manual PDF or `.eml` upload, bundled sample CVs |
 | PDF reading | Server-side text extraction; name, e-mail, phone, city and position are detected; scans are flagged "Do sprawdzenia" |
 | City logic | From the e-mail subject, otherwise from the CV address; unknown goes to "Do przypisania" |
+| Correspondence | Acknowledgement on intake, interview invitation, thank-you after rejection; logged on the profile; bulk "reject and thank" |
 | Duplicates | Same e-mail address as an existing profile is flagged |
 | Roles | HR sees everything; a branch manager sees only the own city, can comment, cannot change anything else (enforced on the server) |
-| GDPR | Export a candidate as JSON, delete a profile with its file, retention warning, audit log |
+| GDPR | Export a candidate as JSON, delete a profile with its file, retention warning and bulk clean-up, audit log |
+| Fairness | No automatic scoring or ranking of candidates; ratings are entered by a person |
 
 ## Run locally
 
@@ -47,6 +51,7 @@ npm run typecheck
 | `INGEST_API_KEY` | empty (endpoint disabled) | Secret for `POST /api/ingest` |
 | `RETENTION_MONTHS` | `6` | Age after which a profile is flagged as past retention |
 | `SEED_DEMO_DATA` | `true` | Load the fictional candidates when the database is empty |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | empty | Real outgoing e-mail. Without `SMTP_HOST` messages are only recorded as "symulacja" |
 | `DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and uploaded files |
 
 ## Deploy on Coolify
@@ -79,6 +84,7 @@ curl -X POST https://<your-host>/api/ingest \
 
 Response: `201 { "id": "...", "needsReview": false, "attachmentAccepted": true }`.
 Mails without a PDF still create a profile (from the sender data) flagged for review.
+A live intake sends the acknowledgement e-mail to the candidate (recorded only, unless SMTP is configured).
 
 ## Authentication
 
@@ -92,9 +98,9 @@ provider) and maps groups or app roles to "HR" and "manager of city X".
 | Path | Content |
 |---|---|
 | `src/app` | Next.js pages and API routes |
-| `src/components` | React UI |
-| `src/lib` | Database, domain constants, PDF parsing, intake logic, auth |
-| `seed/` | Generated sample CVs (PDF) and `seed.json` |
+| `src/components` | React UI (list, board, summary, profile, dialogs) |
+| `src/lib` | Database, domain constants, PDF parsing and CV facts, intake, search, mailer, auth |
+| `seed/` | Generated sample CVs (PDF), sample e-mails (`.eml`) and `seed.json` |
 | `scripts/generate_seed.py` | Regenerates the sample CVs (needs `reportlab`, `pypdfium2`) |
 | `prototype/` | First single-file prototype (browser storage only) |
 | `Dockerfile`, `docker-compose.yml` | Container build for Coolify or local use |
@@ -103,7 +109,6 @@ provider) and maps groups or app roles to "HR" and "manager of city X".
 
 - [ ] Microsoft Entra ID sign-in
 - [ ] Optional LLM extraction of CV fields (rule-based parsing is used now)
-- [ ] Real outgoing e-mails (confirmation and rejection are simulated)
 - [ ] OCR for scanned CVs
-- [ ] Reports (applications per city, time per stage)
+- [ ] Outlook `.msg` import (`.eml` works)
 - [ ] Tests in CI

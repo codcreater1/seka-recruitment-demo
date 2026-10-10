@@ -18,7 +18,7 @@ function Overlay({ onClose, wide, children }: { onClose: () => void; wide?: bool
   );
 }
 
-type Sample = { name: string; file: string; kind: 'text' | 'scan'; subject: string };
+type Sample = { name: string; file: string; kind: 'text' | 'scan' | 'eml'; subject: string };
 
 export function NewModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string, needsReview: boolean) => void }) {
   const [busy, setBusy] = useState(false);
@@ -65,7 +65,8 @@ export function NewModal({ onClose, onCreated }: { onClose: () => void; onCreate
     <Overlay onClose={onClose}>
       <h2>Nowe zgłoszenie</h2>
       <p className="lead">
-        Wgraj CV w formacie PDF z wiadomości e-mail. System odczyta dane z dokumentu i utworzy profil kandydata.
+        Wgraj CV w formacie PDF albo zapisaną wiadomość e-mail (.eml) z załączonym CV. System odczyta dane i utworzy
+        profil kandydata.
       </p>
 
       <div className="form field-note">
@@ -95,14 +96,14 @@ export function NewModal({ onClose, onCreated }: { onClose: () => void; onCreate
           if (f) upload(f);
         }}
       >
-        <strong>{busy ? 'Odczytuję plik…' : 'Przeciągnij plik PDF tutaj'}</strong>
+        <strong>{busy ? 'Odczytuję plik…' : 'Przeciągnij plik PDF lub .eml tutaj'}</strong>
         <span className="hint">lub kliknij, aby wybrać z dysku (do 10 MB)</span>
       </label>
       <input
         ref={input}
         id="file"
         type="file"
-        accept="application/pdf,.pdf"
+        accept="application/pdf,.pdf,.eml,message/rfc822"
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -119,7 +120,7 @@ export function NewModal({ onClose, onCreated }: { onClose: () => void; onCreate
             {samples.map((s) => (
               <button key={s.file} className="btn sample" type="button" disabled={busy} onClick={() => simulate(s.file)}>
                 <span>{s.name}</span>
-                <small>{s.kind === 'scan' ? 'skan bez warstwy tekstowej' : s.subject}</small>
+                <small>{s.kind === 'scan' ? 'skan bez warstwy tekstowej' : s.kind === 'eml' ? 'wiadomość .eml z załącznikiem PDF' : s.subject}</small>
               </button>
             ))}
           </div>
@@ -140,7 +141,8 @@ export function IssuesModal({ onClose }: { onClose: () => void }) {
     ['Czy statusy odpowiadają procesowi HR?', 'Nowa, W weryfikacji, Rozmowa, Oferta, Zatrudniony/a, Odrzucona. Czy brakuje któregoś etapu?'],
     ['Co mogą kierownicy oddziałów?', 'W demo: tylko własne miasto, podgląd i komentarze. Czy mają też zmieniać statusy i oceniać kandydatów?'],
     ['RODO', 'Zgoda na przyszłe rekrutacje, okres przechowywania (w demo 6 miesięcy), usuwanie danych na żądanie, miejsce hostingu, umowa powierzenia.'],
-    ['Automatyczne odpowiedzi', 'Czy potwierdzenia i podziękowania mają wychodzić z systemu, czy zostają w Power Automate?'],
+    ['Automatyczne odpowiedzi', 'Potwierdzenie przyjęcia wychodzi po otrzymaniu wiadomości, podziękowanie po odrzuceniu. W demo wiadomości są tylko zapisywane (bez SMTP). Czy mają wychodzić z systemu, czy zostają w Power Automate?'],
+    ['Ocena kandydatów', 'System nie ocenia ani nie szereguje kandydatów automatycznie (RODO, art. 22). Ocenę wpisuje osoba. Czy tak ma zostać?'],
     ['Duplikaty', 'Jak traktować kandydata, który aplikuje wielokrotnie lub na kilka miast? Demo oznacza powtórzony adres e-mail.'],
     ['Logowanie', 'Docelowo Microsoft Entra ID (SSO). W demo widok wybiera się z listy.'],
   ];

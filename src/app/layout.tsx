@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google';
 import './globals.css';
+import './views.css';
 
 const sans = IBM_Plex_Sans({
   subsets: ['latin', 'latin-ext'],

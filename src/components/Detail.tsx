@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import {
   CITIES,
+  EMAIL_TEMPLATES,
   PIPELINE,
   POSITIONS,
   REJECTION_TEMPLATE,
@@ -10,6 +11,7 @@ import {
   UNKNOWN_POSITION,
   statusLabel,
   type CandidateDetail,
+  type EmailTemplate,
   type Session,
   type StatusId,
 } from '@/lib/domain';
@@ -20,25 +22,39 @@ type Props = {
   c: CandidateDetail;
   session: Session;
   onBack: () => void;
+  /** Present in the board drawer, where "back to list" makes no sense. */
+  onClose?: () => void;
   onPatch: (body: Record<string, unknown>, message?: string) => Promise<void>;
   onNote: (text: string) => Promise<boolean>;
+  onSendEmail: (template: EmailTemplate) => Promise<void>;
   onDelete: () => Promise<void>;
   onOpen: (id: string) => void;
 };
 
 const RODO_LABEL = ['Brak klauzuli w CV', 'Klauzula na czas rekrutacji', 'Klauzula także na przyszłe rekrutacje'];
+const MAIL_STATUS: Record<string, { label: string; cls: string }> = {
+  sent: { label: 'wysłano', cls: 'ok' },
+  simulated: { label: 'symulacja', cls: 'info' },
+  failed: { label: 'błąd wysyłki', cls: 'bad' },
+};
 
-export default function Detail({ c, session, onBack, onPatch, onNote, onDelete, onOpen }: Props) {
+export default function Detail({ c, session, onBack, onClose, onPatch, onNote, onSendEmail, onDelete, onOpen }: Props) {
   const edit = session.canEdit;
   const [note, setNote] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const idx = PIPELINE.indexOf(c.status);
   const cityOptions = [UNASSIGNED_CITY, ...CITIES];
   const positionOptions = [UNKNOWN_POSITION, ...POSITIONS];
+  const p = c.profile;
+  const hasProfile = p.skills.length > 0 || p.languages.length > 0 || p.experienceYears !== null || !!p.education;
 
   return (
     <>
-      <button className="btn small back" type="button" onClick={onBack}>← Wróć do listy</button>
+      {onClose ? (
+        <div className="close-row"><button className="btn small" type="button" onClick={onClose}>Zamknij</button></div>
+      ) : (
+        <button className="btn small back" type="button" onClick={onBack}>← Wróć do listy</button>
+      )}
 
       <div className="d-head">
         <div>
@@ -118,12 +134,12 @@ export default function Detail({ c, session, onBack, onPatch, onNote, onDelete, 
             <p className="hint">Szablon odpowiedzi do kandydata</p>
             <pre>{REJECTION_TEMPLATE(c.position)}</pre>
             {c.rejectionSent ? (
-              <p className="hint" style={{ marginTop: 8 }}>Podziękowanie zostało wysłane (symulacja, żadna wiadomość nie wyszła).</p>
+              <p className="hint" style={{ marginTop: 8 }}>Podziękowanie zostało już wysłane (zobacz Korespondencja).</p>
             ) : (
               edit && (
                 <div className="status-actions">
-                  <button className="btn small primary" type="button" onClick={() => onPatch({ sendRejection: true }, 'Podziękowanie wysłane (symulacja)')}>
-                    Wyślij podziękowanie (symulacja)
+                  <button className="btn small primary" type="button" onClick={() => onSendEmail('rejection')}>
+                    Wyślij podziękowanie
                   </button>
                 </div>
               )
@@ -159,7 +175,21 @@ export default function Detail({ c, session, onBack, onPatch, onNote, onDelete, 
               onChange={(e) => onPatch({ interviewAt: e.target.value || null })}
             />
           </label>
+          {edit && (
+            <button
+              className="btn small"
+              type="button"
+              disabled={!c.interviewAt}
+              title={c.interviewAt ? undefined : 'Najpierw ustal termin rozmowy'}
+              onClick={() => onSendEmail('invite')}
+            >
+              Wyślij zaproszenie
+            </button>
+          )}
         </div>
+        <p className="hint" style={{ marginTop: 8 }}>
+          Ocena jest wpisywana przez osobę. System nie ocenia ani nie szereguje kandydatów automatycznie.
+        </p>
       </section>
 
       <section className="sec cols">
@@ -218,6 +248,21 @@ export default function Detail({ c, session, onBack, onPatch, onNote, onDelete, 
         </div>
       </section>
 
+      {hasProfile && (
+        <section className="sec">
+          <h3>Odczytane z CV</h3>
+          <dl className="facts">
+            {p.experienceYears !== null && (<><dt>Doświadczenie</dt><dd>około {p.experienceYears} {p.experienceYears === 1 ? 'rok' : p.experienceYears < 5 ? 'lata' : 'lat'}</dd></>)}
+            {p.education && (<><dt>Wykształcenie</dt><dd>{p.education}</dd></>)}
+            {p.languages.length > 0 && (<><dt>Języki</dt><dd>{p.languages.join(', ')}</dd></>)}
+          </dl>
+          {p.skills.length > 0 && (
+            <div className="chips">{p.skills.map((s) => <span className="skill" key={s}>{s}</span>)}</div>
+          )}
+          <p className="hint" style={{ marginTop: 8 }}>Informacje odczytane automatycznie z dokumentu, mogą zawierać błędy.</p>
+        </section>
+      )}
+
       <section className="sec">
         <h3>Dokument CV</h3>
         {c.file ? (
@@ -230,6 +275,32 @@ export default function Detail({ c, session, onBack, onPatch, onNote, onDelete, 
           </>
         ) : (
           <p className="hint">Do tego zgłoszenia nie dołączono pliku PDF.</p>
+        )}
+      </section>
+
+      <section className="sec">
+        <h3>Korespondencja</h3>
+        {c.emails.length ? (
+          <div>
+            {[...c.emails].reverse().map((m) => {
+              const st = MAIL_STATUS[m.status] || MAIL_STATUS.simulated;
+              const label = EMAIL_TEMPLATES[m.template as EmailTemplate]?.label || m.subject;
+              return (
+                <details className="mail" key={m.id}>
+                  <summary>
+                    <strong>{label}</strong>
+                    <span className="badge ok">{st.label}</span>
+                    <span className="m-when">{fmtDate(m.at)}</span>
+                  </summary>
+                  <div className="hint" style={{ marginTop: 6 }}>Do: {m.to} · Temat: {m.subject} · Wysłał(a): {m.actor}</div>
+                  {m.error && <div className="err">{m.error}</div>}
+                  <pre>{m.body}</pre>
+                </details>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="hint">Do tego kandydata nie wysłano jeszcze żadnych wiadomości.</p>
         )}
       </section>
 
