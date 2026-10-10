@@ -1,0 +1,951 @@
+<title>Panel rekrutacji</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: narrow header, city tabs, then list (left) and candidate profile (right); single column on phones. */
+:root {
+  --bg: #F3F6F4;
+  --surface: #FFFFFF;
+  --surface-2: #EAF0ED;
+  --line: #D5DDD9;
+  --fg: #14201B;
+  --muted: #56655E;
+  --accent: #1D6A4D;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #DCEBE3;
+  --danger: #A23B3B;
+  --warn-bg: #FFF1CC;
+  --warn-fg: #6B4A00;
+  --paper: #FFFFFF;
+  --paper-ink: #1B1F1D;
+  --paper-line: #D9DEDB;
+  --s-new: #2F6FB5;
+  --s-screening: #B7791F;
+  --s-interview: #7C5CC4;
+  --s-offer: #0F8AA3;
+  --s-hired: #2E8B57;
+  --s-rejected: #B04A4A;
+  --font-body: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  --radius: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1613; --surface: #162019; --surface-2: #1D2A24; --line: #2C3B34;
+    --fg: #E6EEEA; --muted: #93A59C; --accent: #5BBF98; --accent-ink: #07140E; --accent-soft: #1F3A2E;
+    --danger: #E08585; --warn-bg: #3A2F10; --warn-fg: #F0D58A;
+    --paper: #F1F3F0; --paper-ink: #1B1F1D; --paper-line: #C9CFCB;
+    --s-new: #6CA8EA; --s-screening: #E0B050; --s-interview: #A98EF0; --s-offer: #4CC3DA; --s-hired: #5CC48C; --s-rejected: #E08585;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1613; --surface: #162019; --surface-2: #1D2A24; --line: #2C3B34;
+  --fg: #E6EEEA; --muted: #93A59C; --accent: #5BBF98; --accent-ink: #07140E; --accent-soft: #1F3A2E;
+  --danger: #E08585; --warn-bg: #3A2F10; --warn-fg: #F0D58A;
+  --paper: #F1F3F0; --paper-ink: #1B1F1D; --paper-line: #C9CFCB;
+  --s-new: #6CA8EA; --s-screening: #E0B050; --s-interview: #A98EF0; --s-offer: #4CC3DA; --s-hired: #5CC48C; --s-rejected: #E08585;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.5; padding-inline: 16px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3, h4, h5, p, ul, ol, dl, dd { margin: 0; padding: 0; }
+ul, ol { list-style: none; }
+
+.app { max-width: 1280px; margin: 0 auto; padding-block: 16px 28px; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mark { width: 34px; height: 34px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-family: var(--font-mono); font-weight: 500; font-size: 16px; flex: none; }
+.brand-name { font-size: 17px; font-weight: 600; line-height: 1.2; }
+.brand-sub { font-size: 12px; color: var(--muted); }
+.top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.role { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.role select { padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); max-width: 100%; }
+
+.btn { padding: 8px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 500; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+.btn.small { padding: 5px 10px; font-size: 13px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+.notice { margin-top: 12px; padding: 9px 12px; border-radius: var(--radius); background: var(--warn-bg); color: var(--warn-fg); font-size: 13px; }
+
+/* layout */
+.layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; margin-top: 16px; align-items: start; }
+.list-pane, .detail-pane { min-width: 0; }
+
+.tabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.tab { padding: 9px 12px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; cursor: pointer; white-space: nowrap; color: var(--muted); }
+.tab:hover { color: var(--fg); }
+.tab[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
+.tab .n { font-family: var(--font-mono); font-size: 12px; margin-left: 6px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.branch-label { padding: 9px 2px; font-weight: 600; border-bottom: 1px solid var(--line); }
+.branch-label span { font-weight: 400; color: var(--muted); margin-left: 8px; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.filters input[type="search"] { flex: 1 1 200px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.filters select { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+
+.pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.pill { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.pill i, .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--muted)); flex: none; }
+.pill .n { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pill[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+
+.count { margin-top: 12px; font-size: 12px; color: var(--muted); }
+.list { margin-top: 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.list li + li { border-top: 1px solid var(--line); }
+.row { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 10px 12px; text-align: left; border: 0; background: none; cursor: pointer; }
+.row:hover { background: var(--surface-2); }
+.row[aria-current="true"] { background: var(--accent-soft); }
+.row-name { font-weight: 600; overflow-wrap: anywhere; }
+.row-meta { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.row-date { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; align-self: end; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; background: var(--surface-2); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+.empty .btn { margin-top: 12px; }
+
+/* detail */
+.detail-pane { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+.back { display: none; margin-bottom: 12px; }
+.d-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; }
+.d-head h2 { font-size: 21px; line-height: 1.25; font-weight: 600; overflow-wrap: anywhere; }
+.d-sub { color: var(--muted); }
+.sec { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.sec h3 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+.steps { display: flex; flex-wrap: wrap; gap: 6px; }
+.step { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 13px; }
+.step:hover:not([disabled]) { background: var(--surface-2); }
+.step.done { background: var(--accent-soft); border-color: transparent; }
+.step.current { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.step[disabled] { cursor: default; }
+.status-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.hint { font-size: 12px; color: var(--muted); }
+
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; align-items: center; }
+.kv dt { color: var(--muted); font-size: 13px; }
+.kv dd { overflow-wrap: anywhere; }
+.kv select { width: 100%; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.kv .sub { display: block; font-size: 12px; color: var(--muted); }
+.mono { font-family: var(--font-mono); font-size: 13px; }
+.flag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--warn-bg); color: var(--warn-fg); }
+
+.reply { margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--radius); background: var(--surface-2); }
+.reply pre { margin: 0; white-space: pre-wrap; font: inherit; font-size: 13px; }
+
+.file-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.doc { background: var(--paper); color: var(--paper-ink); border: 1px solid var(--paper-line); border-radius: 4px; padding: 20px 22px; max-height: 460px; overflow: auto; }
+.doc h4 { font-size: 18px; font-weight: 600; }
+.doc .contact { font-size: 12px; color: #4b5550; margin-top: 2px; overflow-wrap: anywhere; }
+.doc h5 { margin-top: 14px; padding-bottom: 3px; border-bottom: 1px solid var(--paper-line); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.doc li { margin-top: 6px; font-size: 13px; }
+.doc li span { color: #4b5550; }
+.doc .clause { margin-top: 14px; font-size: 11px; color: #4b5550; }
+.doc pre { margin: 0; white-space: pre-wrap; font-family: var(--font-mono); font-size: 12px; }
+
+.notes li { padding: 8px 0; }
+.notes li + li { border-top: 1px solid var(--line); }
+.note-by { font-size: 12px; color: var(--muted); }
+.note-form { margin-top: 10px; display: grid; gap: 8px; justify-items: start; }
+.note-form textarea, .field input, .field select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.note-form textarea { min-height: 70px; resize: vertical; }
+
+.timeline li { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 10px; padding: 4px 0; font-size: 13px; }
+.timeline time { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.foot { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 12px; }
+
+/* modal + toast */
+.overlay { position: fixed; inset: 0; background: rgba(8, 14, 11, .55); display: flex; align-items: flex-start; justify-content: center; padding: 24px 16px; overflow: auto; z-index: 20; }
+.modal { width: 100%; max-width: 560px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+.modal h2 { font-size: 18px; font-weight: 600; }
+.modal .lead { margin-top: 4px; color: var(--muted); }
+.drop { margin-top: 16px; display: grid; gap: 4px; justify-items: center; text-align: center; padding: 26px 16px; border: 2px dashed var(--line); border-radius: var(--radius); cursor: pointer; background: var(--surface-2); }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop strong { font-weight: 600; }
+.or { margin: 12px 0; text-align: center; color: var(--muted); font-size: 12px; }
+.form { margin-top: 16px; display: grid; gap: 12px; }
+.field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+.field .tag { font-weight: 400; font-size: 12px; color: var(--muted); margin-left: 6px; }
+.field .tag.ok { color: var(--accent); }
+.err { color: var(--danger); font-size: 13px; }
+.modal-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+.extract { margin-top: 4px; max-height: 120px; overflow: auto; padding: 8px 10px; border-radius: var(--radius); background: var(--surface-2); font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; }
+.issues { margin-top: 14px; display: grid; gap: 12px; counter-reset: q; }
+.issues li { padding-left: 4px; }
+.issues strong { display: block; }
+.issues span { color: var(--muted); }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 12px); background: var(--fg); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 30; max-width: calc(100% - 32px); text-align: center; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+@media (max-width: 899px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .app:not(.show-detail) .detail-pane { display: none; }
+  .app.show-detail .list-pane { display: none; }
+  .back { display: inline-block; }
+}
+@media (max-width: 560px) {
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .timeline li { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .detail-pane { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">R</div>
+      <div>
+        <div class="brand-name">Panel rekrutacji</div>
+        <div class="brand-sub">Wersja demonstracyjna · dane fikcyjne · bez logowania</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <label class="role" for="role"><span>Widok</span><select id="role"></select></label>
+      <button class="btn" id="btn-issues" data-action="issues" type="button">Do omówienia</button>
+      <button class="btn primary" id="btn-new" data-action="new" type="button">Nowe zgłoszenie</button>
+    </div>
+  </header>
+  <div id="role-note"></div>
+
+  <main class="layout">
+    <section class="list-pane" aria-label="Lista zgłoszeń">
+      <div id="tabs"></div>
+      <div class="filters">
+        <input id="q" type="search" placeholder="Szukaj po nazwisku, stanowisku lub e-mailu" aria-label="Szukaj zgłoszeń">
+        <select id="sort" aria-label="Sortowanie">
+          <option value="new">Najnowsze</option>
+          <option value="old">Najstarsze</option>
+          <option value="name">Nazwisko A–Z</option>
+        </select>
+      </div>
+      <div class="pills" id="pills"></div>
+      <div class="count" id="count"></div>
+      <ul class="list" id="list"></ul>
+    </section>
+    <section class="detail-pane" id="detail" aria-label="Profil kandydata"></section>
+  </main>
+
+  <footer class="foot">
+    <span>Dane są fikcyjne, a zmiany zapisują się tylko w tej przeglądarce.</span>
+    <button class="link" type="button" data-action="reset">Przywróć dane demonstracyjne</button>
+  </footer>
+</div>
+<div id="modal-root"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var LS_KEY = 'panel-rekrutacji-demo-v1';
+  var PDF_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  var PDF_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  /* ---------- reference data ---------- */
+  var CITIES = ['Warszawa', 'Kraków', 'Wrocław', 'Gdańsk', 'Poznań', 'Katowice'];
+  var POSITIONS = [
+    'Specjalista ds. ochrony środowiska',
+    'Technik laboratoryjny',
+    'Konsultant ds. BHP',
+    'Specjalista ds. pomiarów emisji',
+    'Młodszy specjalista ds. raportowania',
+    'Księgowy',
+    'Praktykant'
+  ];
+  var POS_KEYS = [
+    ['ochrony srodowiska', 'ochrona srodowiska'],
+    ['technik laboratoryjny', 'laborator'],
+    ['bhp', 'higieny pracy'],
+    ['emisj', 'pomiar'],
+    ['raportow', 'sprawozdawcz'],
+    ['ksiegow', 'rachunkow'],
+    ['praktykant', 'staz']
+  ];
+  var STATUS = [
+    { id: 'new', label: 'Nowa', dot: '--s-new' },
+    { id: 'screening', label: 'W weryfikacji', dot: '--s-screening' },
+    { id: 'interview', label: 'Rozmowa', dot: '--s-interview' },
+    { id: 'offer', label: 'Oferta', dot: '--s-offer' },
+    { id: 'hired', label: 'Zatrudniony/a', dot: '--s-hired' },
+    { id: 'rejected', label: 'Odrzucona', dot: '--s-rejected' }
+  ];
+  var PIPE = ['new', 'screening', 'interview', 'offer', 'hired'];
+  var ROLES = [{ id: 'hr', label: 'HR – Agnieszka (wszystkie miasta)', city: null, canEdit: true }].concat(
+    CITIES.map(function (c) { return { id: 'mgr-' + c, label: 'Kierownik oddziału – ' + c, city: c, canEdit: false }; })
+  );
+  var UNI = { 'Warszawa': 'Politechnika Warszawska', 'Kraków': 'AGH w Krakowie', 'Wrocław': 'Politechnika Wrocławska', 'Gdańsk': 'Politechnika Gdańska', 'Poznań': 'Uniwersytet Przyrodniczy w Poznaniu', 'Katowice': 'Politechnika Śląska' };
+  var FIELD = ['Ochrona środowiska', 'Biotechnologia', 'Inżynieria środowiska', 'Inżynieria środowiska', 'Zarządzanie i inżynieria produkcji', 'Rachunkowość i finanse', 'Ochrona środowiska'];
+  var EMP = ['Ekoplan Sp. z o.o.', 'Probus Laboratoria', 'AquaTest Sp. z o.o.', 'Zakład Usług Komunalnych', 'Biuro Doradcze Zielona Linia', 'Grupa Wodna Sp. z o.o.'];
+  var SKILLS = [
+    ['Raportowanie środowiskowe', 'Pozwolenia i decyzje', 'MS Excel', 'Język angielski B2'],
+    ['Przygotowanie próbek', 'Chromatografia', 'Dokumentacja laboratoryjna', 'Norma PN-EN ISO/IEC 17025'],
+    ['Ocena ryzyka zawodowego', 'Szkolenia BHP', 'Audyty wewnętrzne', 'Kodeks pracy'],
+    ['Pomiary emisji do powietrza', 'Pobór próbek', 'Sprawozdania z badań', 'Prawo jazdy kat. B'],
+    ['Analiza danych', 'Power BI', 'MS Excel', 'Raporty okresowe'],
+    ['Księgi handlowe', 'Faktury VAT', 'Płace i ZUS', 'Optima'],
+    ['Pakiet Office', 'Komunikatywność', 'Chęć uczenia się', 'Język angielski B1']
+  ];
+  var CLAUSE = 'Wyrażam zgodę na przetwarzanie moich danych osobowych w celu prowadzenia rekrutacji.';
+
+  // [name, city, position index, status, days ago, years of experience]
+  var SEED = [
+    ['Anna Kowalczyk', 'Warszawa', 0, 'new', 0, 4],
+    ['Piotr Zieliński', 'Warszawa', 3, 'screening', 2, 6],
+    ['Katarzyna Wójcik', 'Warszawa', 5, 'interview', 6, 8],
+    ['Dorota Jaworska', 'Warszawa', 2, 'new', 1, 6],
+    ['Marcin Lewandowski', 'Kraków', 1, 'new', 1, 2],
+    ['Joanna Kamińska', 'Kraków', 2, 'screening', 4, 5],
+    ['Tomasz Dąbrowski', 'Kraków', 0, 'rejected', 12, 1],
+    ['Magdalena Szymańska', 'Wrocław', 4, 'interview', 5, 3],
+    ['Paweł Woźniak', 'Wrocław', 1, 'new', 0, 0],
+    ['Ewa Jankowska', 'Wrocław', 6, 'screening', 3, 0],
+    ['Michał Mazur', 'Gdańsk', 3, 'offer', 9, 7],
+    ['Natalia Krawczyk', 'Gdańsk', 0, 'new', 1, 2],
+    ['Karolina Piotrowska', 'Gdańsk', 2, 'hired', 21, 9],
+    ['Jakub Grabowski', 'Poznań', 5, 'screening', 7, 4],
+    ['Monika Pawłowska', 'Poznań', 4, 'rejected', 14, 1],
+    ['Krzysztof Michalski', 'Katowice', 3, 'interview', 3, 10],
+    ['Aleksandra Król', 'Katowice', 6, 'new', 0, 0],
+    ['Rafał Wieczorek', 'Katowice', 1, 'rejected', 18, 3]
+  ];
+  var SEED_NOTES = {
+    2: 'Rozmowa telefoniczna: dostępna od 1 listopada, oczekiwania finansowe do omówienia.',
+    5: 'Doświadczenie w audytach u klientów produkcyjnych. Do rozmowy z kierownikiem oddziału.',
+    7: 'Dobre referencje. Termin rozmowy do uzgodnienia na przyszły tydzień.',
+    10: 'Oferta wysłana, czekamy na odpowiedź do piątku.',
+    12: 'Start pracy 2 listopada.',
+    15: 'Rozmowa z kierownikiem oddziału zaplanowana na czwartek.'
+  };
+  var INCOMING = [
+    { name: 'Weronika Adamska', city: 'Kraków', pos: 1, phone: '+48 512 345 678' },
+    { name: 'Łukasz Sadowski', city: 'Gdańsk', pos: 3, phone: '+48 523 456 789' },
+    { name: 'Izabela Nowicka', city: 'Wrocław', pos: 0, phone: '+48 534 567 890' },
+    { name: 'Bartosz Kaczmarek', city: 'Poznań', pos: 2, phone: '+48 545 678 901' }
+  ];
+
+  /* ---------- helpers ---------- */
+  var esc = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+  var $ = function (s) { return document.querySelector(s); };
+  var norm = function (s) { return String(s || '').toLowerCase().replace(/ł/g, 'l').normalize('NFD').replace(/[̀-ͯ]/g, ''); };
+  var fmtDate = function (iso) { return new Date(iso).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+  var fmtDay = function (iso) { return new Date(iso).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' }); };
+  var stOf = function (id) { return STATUS.filter(function (s) { return s.id === id; })[0]; };
+  var slug = function (name) { return norm(name).replace(/[^a-z\s]/g, '').trim().replace(/\s+/g, '.'); };
+  var fileSlug = function (name) { return norm(name).replace(/[^a-z\s]/g, '').trim().replace(/\s+/g, '_'); };
+  var uid = function () { return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); };
+  function rel(iso) {
+    var d = (Date.now() - new Date(iso).getTime()) / 864e5;
+    if (d < 1) {
+      var h = Math.floor(d * 24);
+      return h < 1 ? 'przed chwilą' : h + ' godz. temu';
+    }
+    var n = Math.floor(d);
+    return n === 1 ? 'wczoraj' : n + ' dni temu';
+  }
+  function posScore(text) {
+    var t = norm(text), best = -1, bestScore = 0;
+    POS_KEYS.forEach(function (keys, i) {
+      var s = 0;
+      keys.forEach(function (k) { var at = t.indexOf(k); while (at > -1) { s++; at = t.indexOf(k, at + k.length); } });
+      if (s > bestScore) { bestScore = s; best = i; }
+    });
+    return { index: best, score: bestScore };
+  }
+
+  /* ---------- seed data ---------- */
+  function buildSeed() {
+    var now = Date.now();
+    return SEED.map(function (r, i) {
+      var name = r[0], city = r[1], pos = r[2], status = r[3], days = r[4], years = r[5];
+      var received = now - days * 864e5 - (2 * 36e5 + i * 37 * 6e4);
+      var at = function (offsetH) { return new Date(Math.min(received + offsetH * 36e5, now - 5 * 6e4)).toISOString(); };
+      var start = 2026 - years;
+      var exp = [];
+      if (years) {
+        exp.push({ role: POSITIONS[pos], org: EMP[i % EMP.length], period: (start + Math.min(2, years - 1)) + ' – obecnie' });
+        if (years >= 3) exp.push({ role: 'Asystent / stażysta', org: EMP[(i + 2) % EMP.length], period: start + ' – ' + (start + Math.min(2, years - 1)) });
+      }
+      var path = { new: [], screening: ['screening'], interview: ['screening', 'interview'], offer: ['screening', 'interview', 'offer'], hired: ['screening', 'interview', 'offer', 'hired'], rejected: ['screening', 'rejected'] }[status];
+      var history = [
+        { at: new Date(received).toISOString(), text: 'Otrzymano zgłoszenie e-mailem' },
+        { at: new Date(received + 6e4).toISOString(), text: 'Utworzono profil kandydata (automatycznie z załącznika PDF)' },
+        { at: new Date(received + 2 * 6e4).toISOString(), text: 'Wysłano potwierdzenie przyjęcia zgłoszenia (automatyczna odpowiedź, symulacja)' }
+      ];
+      var prev = 'new';
+      path.forEach(function (st, k) {
+        history.push({ at: at(20 + k * 30), text: 'Zmiana statusu: ' + stOf(prev).label + ' → ' + stOf(st).label });
+        prev = st;
+      });
+      var rejectionSent = status === 'rejected';
+      if (rejectionSent) history.push({ at: at(20 + path.length * 30 + 1), text: 'Wysłano podziękowanie za udział w rekrutacji (symulacja)' });
+      var notes = [];
+      if (SEED_NOTES[i]) notes.push({ by: 'Agnieszka (HR)', at: at(24), text: SEED_NOTES[i] });
+      return {
+        id: 'seed-' + i,
+        name: name, city: city, position: POSITIONS[pos], status: status,
+        email: slug(name) + '@example.com',
+        phone: '+48 5' + (i % 9 + 1) + '0 ' + String(120 + i * 17) + ' ' + String(300 + i * 29),
+        received: new Date(received).toISOString(),
+        channel: 'E-mail',
+        from: slug(name) + '@example.com',
+        subject: i % 3 === 1 ? 'Aplikacja – ' + POSITIONS[pos] + ' (' + city + ')' : 'Aplikacja na stanowisko: ' + POSITIONS[pos],
+        cityBasis: ['ogłoszenia (wybrane stanowisko)', 'tytułu wiadomości', 'adresu w CV'][i % 3],
+        file: 'CV_' + fileSlug(name) + '.pdf',
+        size: (120 + (i * 37) % 380) + ' KB',
+        rodo: !(i === 7 || i === 15),
+        cv: { edu: FIELD[pos] + ', ' + UNI[city] + (years ? ' (mgr inż.)' : ' (studia w trakcie)'), exp: exp, skills: SKILLS[pos] },
+        rawText: '',
+        notes: notes, history: history, rejectionSent: rejectionSent
+      };
+    });
+  }
+
+  /* ---------- state ---------- */
+  var state = { role: 'hr', city: 'all', status: 'all', q: '', sort: 'new', sel: null, candidates: [], modal: null, drafts: {}, incomingIdx: 0 };
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        var d = JSON.parse(raw);
+        if (d && Array.isArray(d.candidates) && d.candidates.length) {
+          state.candidates = d.candidates;
+          if (ROLES.some(function (r) { return r.id === d.role; })) state.role = d.role;
+          return;
+        }
+      }
+    } catch (e) { /* storage unavailable */ }
+    state.candidates = buildSeed();
+  }
+  function save() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ candidates: state.candidates, role: state.role })); } catch (e) { /* ignore */ }
+  }
+
+  var role = function () { return ROLES.filter(function (r) { return r.id === state.role; })[0]; };
+  var byId = function (id) { return state.candidates.filter(function (c) { return c.id === id; })[0]; };
+  var narrow = function () { return window.matchMedia('(max-width: 899px)').matches; };
+
+  function matches(c, o) {
+    o = o || {};
+    var r = role();
+    var city = o.city !== undefined ? o.city : state.city;
+    var status = o.status !== undefined ? o.status : state.status;
+    var q = o.q !== undefined ? o.q : state.q;
+    if (r.city && c.city !== r.city) return false;
+    if (city !== 'all' && c.city !== city) return false;
+    if (status !== 'all' && c.status !== status) return false;
+    if (q) {
+      var hay = norm([c.name, c.position, c.email, c.city].join(' '));
+      if (hay.indexOf(norm(q)) === -1) return false;
+    }
+    return true;
+  }
+  function visible() {
+    var list = state.candidates.filter(function (c) { return matches(c); });
+    var surname = function (n) { return norm(n.split(' ').slice(-1)[0]); };
+    list.sort(function (a, b) {
+      if (state.sort === 'old') return new Date(a.received) - new Date(b.received);
+      if (state.sort === 'name') return surname(a.name).localeCompare(surname(b.name), 'pl');
+      return new Date(b.received) - new Date(a.received);
+    });
+    return list;
+  }
+
+  /* ---------- rendering ---------- */
+  function chip(id) {
+    var s = stOf(id);
+    return '<span class="chip" style="--dot:var(' + s.dot + ')"><i></i>' + esc(s.label) + '</span>';
+  }
+
+  function renderRoleBits() {
+    var r = role();
+    $('#role').innerHTML = ROLES.map(function (x) {
+      return '<option value="' + esc(x.id) + '"' + (x.id === r.id ? ' selected' : '') + '>' + esc(x.label) + '</option>';
+    }).join('');
+    $('#btn-new').hidden = !r.canEdit;
+    $('#role-note').innerHTML = r.canEdit ? '' :
+      '<div class="notice">Widok kierownika oddziału: widzisz tylko zgłoszenia z miasta ' + esc(r.city) +
+      '. Możesz przeglądać profile i dodawać komentarze. Zakres uprawnień jest do ustalenia.</div>';
+  }
+
+  function renderTabs() {
+    var r = role();
+    if (r.city) {
+      var n = state.candidates.filter(function (c) { return c.city === r.city; }).length;
+      $('#tabs').innerHTML = '<div class="branch-label">Oddział: ' + esc(r.city) + '<span>' + n + ' zgłoszeń łącznie</span></div>';
+      return;
+    }
+    var all = [{ id: 'all', label: 'Wszystkie miasta' }].concat(CITIES.map(function (c) { return { id: c, label: c }; }));
+    $('#tabs').innerHTML = '<nav class="tabs" role="tablist" aria-label="Miasto">' + all.map(function (t) {
+      var n = state.candidates.filter(function (c) { return matches(c, { city: t.id }); }).length;
+      return '<button class="tab" role="tab" type="button" data-action="tab" data-city="' + esc(t.id) + '" aria-selected="' + (state.city === t.id) + '">' +
+        esc(t.label) + '<span class="n">' + n + '</span></button>';
+    }).join('') + '</nav>';
+  }
+
+  function renderPills() {
+    var all = state.candidates.filter(function (c) { return matches(c, { status: 'all' }); });
+    var html = '<button class="pill" type="button" data-action="pill" data-status="all" aria-pressed="' + (state.status === 'all') + '">Wszystkie<span class="n">' + all.length + '</span></button>';
+    html += STATUS.map(function (s) {
+      var n = all.filter(function (c) { return c.status === s.id; }).length;
+      return '<button class="pill" type="button" data-action="pill" data-status="' + s.id + '" aria-pressed="' + (state.status === s.id) + '" style="--dot:var(' + s.dot + ')"><i></i>' +
+        esc(s.label) + '<span class="n">' + n + '</span></button>';
+    }).join('');
+    $('#pills').innerHTML = html;
+  }
+
+  function renderList() {
+    var list = visible();
+    var total = role().city ? state.candidates.filter(function (c) { return c.city === role().city; }).length : state.candidates.length;
+    $('#count').textContent = 'Wyświetlono ' + list.length + ' z ' + total;
+    if (!list.length) {
+      $('#list').innerHTML = '<li><div class="empty"><p>Brak zgłoszeń dla wybranych filtrów.</p><button class="btn small" type="button" data-action="clear">Wyczyść filtry</button></div></li>';
+      return list;
+    }
+    $('#list').innerHTML = list.map(function (c) {
+      return '<li><button class="row" type="button" data-action="select" data-id="' + esc(c.id) + '"' + (c.id === state.sel ? ' aria-current="true"' : '') + '>' +
+        '<span class="row-name">' + esc(c.name) + '</span>' + chip(c.status) +
+        '<span class="row-meta">' + esc(c.position) + ' · ' + esc(c.city) + '</span>' +
+        '<span class="row-date">' + esc(rel(c.received)) + '</span></button></li>';
+    }).join('');
+    return list;
+  }
+
+  function renderDoc(c) {
+    var body;
+    if (c.rawText) {
+      body = '<pre>' + esc(c.rawText) + '</pre>';
+    } else {
+      var exp = c.cv.exp.length ? c.cv.exp.map(function (e) {
+        return '<li><strong>' + esc(e.role) + '</strong>, ' + esc(e.org) + '<br><span>' + esc(e.period) + '</span></li>';
+      }).join('') : '<li><span>Brak doświadczenia zawodowego (absolwent/ka lub student/ka).</span></li>';
+      body = '<h4>' + esc(c.name) + '</h4><div class="contact">' + esc(c.email) + ' · ' + esc(c.phone) + ' · ' + esc(c.city) + '</div>' +
+        '<h5>Doświadczenie zawodowe</h5><ul>' + exp + '</ul>' +
+        '<h5>Wykształcenie</h5><ul><li>' + esc(c.cv.edu) + '</li></ul>' +
+        '<h5>Umiejętności</h5><ul><li>' + c.cv.skills.map(esc).join(' · ') + '</li></ul>' +
+        (c.rodo ? '<p class="clause">' + esc(CLAUSE) + '</p>' : '');
+    }
+    return '<div class="file-bar"><span class="mono">' + esc(c.file) + '</span><span>' + esc(c.size) +
+      (c.rawText ? ' · tekst odczytany z PDF' : ' · podgląd dokumentu (przykładowy)') + '</span></div><article class="doc">' + body + '</article>';
+  }
+
+  function replyText(c) {
+    return 'Dzień dobry,\n\ndziękujemy za udział w procesie rekrutacji na stanowisko ' + c.position +
+      '. Informujemy, że na tym etapie skontaktujemy się tylko z wybranymi kandydatami.\n\n' +
+      'Dziękujemy za zainteresowanie naszą firmą i życzymy powodzenia.\n\nDział HR';
+  }
+
+  function renderDetail() {
+    var el = $('#detail');
+    var c = byId(state.sel);
+    if (!c) {
+      el.innerHTML = '<div class="empty"><p>Wybierz zgłoszenie z listy, aby zobaczyć profil kandydata.</p></div>';
+      return;
+    }
+    var r = role(), edit = r.canEdit;
+    var idx = PIPE.indexOf(c.status);
+    var steps = PIPE.map(function (id, i) {
+      var cls = c.status === id ? 'current' : (idx > -1 && i < idx ? 'done' : '');
+      return '<li><button class="step ' + cls + '" type="button" data-action="status" data-status="' + id + '"' + (edit ? '' : ' disabled') +
+        ' aria-pressed="' + (c.status === id) + '">' + esc(stOf(id).label) + '</button></li>';
+    }).join('');
+    var statusActions = '';
+    if (edit) {
+      statusActions = c.status === 'rejected'
+        ? '<button class="btn small" type="button" data-action="status" data-status="screening">Przywróć do weryfikacji</button>'
+        : '<button class="btn small danger" type="button" data-action="status" data-status="rejected">Odrzuć zgłoszenie</button>';
+    } else {
+      statusActions = '<span class="hint">Zmiana statusu jest dostępna tylko dla HR (zakres uprawnień do ustalenia).</span>';
+    }
+    var reply = '';
+    if (c.status === 'rejected') {
+      reply = '<div class="reply"><p class="hint">Szablon odpowiedzi do kandydata</p><pre>' + esc(replyText(c)) + '</pre>' +
+        (c.rejectionSent
+          ? '<p class="hint" style="margin-top:8px">Podziękowanie zostało wysłane (symulacja).</p>'
+          : (edit ? '<div class="status-actions"><button class="btn small primary" type="button" data-action="thanks">Wyślij podziękowanie (symulacja)</button></div>' : '')) +
+        '</div>';
+    }
+    var sel = function (field, options, value) {
+      return '<select data-field="' + field + '"' + (edit ? '' : ' disabled') + ' aria-label="' + (field === 'city' ? 'Miasto' : 'Stanowisko') + '">' +
+        options.map(function (o) { return '<option' + (o === value ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
+    };
+    var posOpts = POSITIONS.indexOf(c.position) === -1 ? [c.position].concat(POSITIONS) : POSITIONS;
+    var cityOpts = CITIES.indexOf(c.city) === -1 ? [c.city].concat(CITIES) : CITIES;
+    var notes = c.notes.length
+      ? '<ul class="notes">' + c.notes.map(function (n) {
+        return '<li><div class="note-by">' + esc(n.by) + ' · ' + esc(fmtDate(n.at)) + '</div><p>' + esc(n.text) + '</p></li>';
+      }).join('') + '</ul>'
+      : '<p class="hint">Brak notatek.</p>';
+    var hist = c.history.slice().reverse().map(function (h) {
+      return '<li><time>' + esc(fmtDate(h.at)) + '</time><span>' + esc(h.text) + '</span></li>';
+    }).join('');
+
+    el.innerHTML =
+      '<button class="btn small back" type="button" data-action="back">← Wróć do listy</button>' +
+      '<div class="d-head"><div><h2>' + esc(c.name) + '</h2><div class="d-sub">' + esc(c.position) + ' · ' + esc(c.city) + '</div></div>' + chip(c.status) + '</div>' +
+
+      '<section class="sec"><h3>Status zgłoszenia</h3><ol class="steps">' + steps + '</ol>' +
+      '<div class="status-actions">' + statusActions + '</div>' + reply + '</section>' +
+
+      '<section class="sec cols">' +
+      '<div><h3>Dane kandydata</h3><dl class="kv">' +
+      '<dt>E-mail</dt><dd class="mono">' + esc(c.email) + '</dd>' +
+      '<dt>Telefon</dt><dd class="mono">' + esc(c.phone) + '</dd>' +
+      '<dt>Miasto</dt><dd>' + sel('city', cityOpts, c.city) + '<span class="sub">ustalone z: ' + esc(c.cityBasis || 'wpisano ręcznie') + '</span></dd>' +
+      '<dt>Stanowisko</dt><dd>' + sel('position', posOpts, c.position) + '</dd>' +
+      '<dt>Zgoda RODO</dt><dd>' + (c.rodo ? 'Klauzula znaleziona w CV' : '<span class="flag">Brak klauzuli w CV</span>') + '</dd>' +
+      '</dl></div>' +
+      '<div><h3>Źródło zgłoszenia</h3><dl class="kv">' +
+      '<dt>Kanał</dt><dd>' + esc(c.channel) + '</dd>' +
+      '<dt>Nadawca</dt><dd class="mono">' + esc(c.from) + '</dd>' +
+      '<dt>Temat</dt><dd>' + esc(c.subject) + '</dd>' +
+      '<dt>Odebrano</dt><dd>' + esc(fmtDate(c.received)) + '</dd>' +
+      '<dt>Załącznik</dt><dd class="mono">' + esc(c.file) + '</dd>' +
+      '</dl></div></section>' +
+
+      '<section class="sec"><h3>Dokument CV</h3>' + renderDoc(c) + '</section>' +
+
+      '<section class="sec"><h3>' + (edit ? 'Notatki HR' : 'Notatki i komentarze') + '</h3>' + notes +
+      '<div class="note-form"><textarea id="note" aria-label="Nowa notatka" placeholder="' + (edit ? 'Dodaj notatkę…' : 'Dodaj komentarz do zgłoszenia…') + '">' + esc(state.drafts[c.id] || '') + '</textarea>' +
+      '<button class="btn small primary" type="button" data-action="note">' + (edit ? 'Dodaj notatkę' : 'Dodaj komentarz') + '</button></div></section>' +
+
+      '<section class="sec"><h3>Historia zgłoszenia</h3><ol class="timeline">' + hist + '</ol></section>';
+  }
+
+  function render() {
+    renderRoleBits();
+    renderTabs();
+    renderPills();
+    var list = renderList();
+    var cur = byId(state.sel);
+    // keep the open profile even when a filter now hides it (e.g. after a status change)
+    if (!cur || (role().city && cur.city !== role().city)) {
+      state.sel = (!narrow() && list.length) ? list[0].id : null;
+      renderList();
+    }
+    renderDetail();
+    $('#app').classList.toggle('show-detail', state.sel !== null);
+  }
+
+  /* ---------- modal ---------- */
+  function renderModal() {
+    var root = $('#modal-root');
+    var m = state.modal;
+    if (!m) { root.innerHTML = ''; return; }
+    var body = '';
+    if (m.type === 'issues') {
+      var items = [
+        ['Skąd bierzemy miasto zgłoszenia?', 'Z ogłoszenia, tytułu wiadomości czy adresu kandydata? W demo przy każdym profilu widać, z czego miasto zostało ustalone.'],
+        ['Jak wiadomości trafiają do systemu?', 'Przekierowanie z Power Automate, Microsoft Graph ograniczony do jednej skrzynki albo ręczne wgrywanie (jak w demo).'],
+        ['Czy statusy odpowiadają procesowi HR?', 'Nowa, W weryfikacji, Rozmowa, Oferta, Zatrudniony/a, Odrzucona. Czy brakuje któregoś etapu?'],
+        ['Co mogą kierownicy oddziałów?', 'W demo: tylko własne miasto, podgląd i komentarze. Czy mają też zmieniać statusy?'],
+        ['RODO', 'Zgoda na przyszłe rekrutacje, okres przechowywania, usuwanie danych na żądanie, miejsce hostingu.'],
+        ['Automatyczne odpowiedzi', 'Czy potwierdzenia i podziękowania mają wychodzić z systemu, czy zostają w Power Automate?'],
+        ['Duplikaty', 'Jak traktować kandydata, który aplikuje wielokrotnie lub na kilka miast?'],
+        ['Logowanie', 'Docelowo Microsoft Entra ID (SSO). W demo pominięte.']
+      ];
+      body = '<h2>Kwestie do omówienia</h2><p class="lead">Założenia przyjęte w tej wersji demonstracyjnej. Każde warto potwierdzić.</p>' +
+        '<ol class="issues">' + items.map(function (it) { return '<li><strong>' + esc(it[0]) + '</strong><span>' + esc(it[1]) + '</span></li>'; }).join('') + '</ol>' +
+        '<div class="modal-actions"><button class="btn primary" type="button" data-action="close">Zamknij</button></div>';
+    } else if (m.step === 1) {
+      body = '<h2>Nowe zgłoszenie</h2><p class="lead">Wgraj CV w formacie PDF z wiadomości e-mail. System odczyta dane i utworzy profil kandydata.</p>' +
+        '<label class="drop" id="drop" for="file"><strong>' + (m.busy ? 'Odczytuję plik…' : 'Przeciągnij plik PDF tutaj') + '</strong><span class="hint">lub kliknij, aby wybrać z dysku (do 10 MB)</span></label>' +
+        '<input type="file" id="file" accept="application/pdf,.pdf" hidden>' +
+        (m.error ? '<p class="err" style="margin-top:8px">' + esc(m.error) + '</p>' : '') +
+        '<div class="or">albo</div>' +
+        '<button class="btn" type="button" data-action="simulate" style="width:100%">Symuluj przychodzącą wiadomość e-mail</button>' +
+        '<div class="modal-actions"><button class="btn" type="button" data-action="close">Anuluj</button></div>';
+    } else {
+      var f = m.form, d = m.detected;
+      var tag = function (k) { return d[k] ? '<span class="tag ok">odczytano automatycznie</span>' : '<span class="tag">nie znaleziono, uzupełnij</span>'; };
+      var dup = f.email ? state.candidates.filter(function (c) { return c.email.toLowerCase() === f.email.toLowerCase(); })[0] : null;
+      body = '<h2>Sprawdź odczytane dane</h2><p class="lead">' + (m.source === 'email' ? 'Wiadomość e-mail z załączonym CV.' : 'Plik: ' + esc(m.file.name)) + ' Popraw dane, jeśli system pomylił się przy odczycie.</p>' +
+        '<div class="form">' +
+        '<div class="field"><label for="f-name">Imię i nazwisko' + tag('name') + '</label><input id="f-name" data-form="name" value="' + esc(f.name) + '"></div>' +
+        '<div class="field"><label for="f-email">E-mail' + tag('email') + '</label><input id="f-email" data-form="email" value="' + esc(f.email) + '"></div>' +
+        '<div class="field"><label for="f-phone">Telefon' + tag('phone') + '</label><input id="f-phone" data-form="phone" value="' + esc(f.phone) + '"></div>' +
+        '<div class="field"><label for="f-city">Miasto' + tag('city') + '</label><select id="f-city" data-form="city"><option value="">Wybierz miasto</option>' +
+        CITIES.map(function (c) { return '<option' + (c === f.city ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field"><label for="f-pos">Stanowisko' + tag('position') + '</label><select id="f-pos" data-form="position"><option value="">Wybierz stanowisko</option>' +
+        POSITIONS.map(function (p) { return '<option' + (p === f.position ? ' selected' : '') + '>' + esc(p) + '</option>'; }).join('') + '</select></div>' +
+        '<div id="dup">' + (dup ? '<p class="notice">Kandydat z tym adresem e-mail już istnieje (zgłoszenie z ' + esc(fmtDay(dup.received)) + '). Utworzenie nowego profilu doda duplikat.</p>' : '') + '</div>' +
+        (m.raw ? '<div><div class="hint">Tekst odczytany z dokumentu</div><div class="extract">' + esc(m.raw.slice(0, 700)) + '</div></div>' : '') +
+        '</div>' +
+        (m.error ? '<p class="err" style="margin-top:10px">' + esc(m.error) + '</p>' : '') +
+        '<div class="modal-actions"><button class="btn" type="button" data-action="close">Anuluj</button>' +
+        '<button class="btn primary" type="button" data-action="create">Utwórz profil kandydata</button></div>';
+    }
+    root.innerHTML = '<div class="overlay" data-action="overlay"><div class="modal" role="dialog" aria-modal="true">' + body + '</div></div>';
+    var first = root.querySelector('input:not([type=file]), select, .btn');
+    if (first && m.step === 2) first.focus();
+    wireDrop();
+  }
+
+  function wireDrop() {
+    var drop = $('#drop'), input = $('#file');
+    if (!drop || !input) return;
+    input.addEventListener('change', function () { if (input.files[0]) handleFile(input.files[0]); });
+    ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+    ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+    drop.addEventListener('drop', function (e) { var f = e.dataTransfer && e.dataTransfer.files[0]; if (f) handleFile(f); });
+  }
+
+  /* ---------- PDF reading ---------- */
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = PDF_LIB;
+      s.onload = function () { window.pdfjsLib ? resolve(window.pdfjsLib) : reject(new Error('pdfjs')); };
+      s.onerror = function () { reject(new Error('pdfjs')); };
+      document.head.appendChild(s);
+    });
+  }
+  function extractPdf(file) {
+    return loadPdfJs().then(function (lib) {
+      lib.GlobalWorkerOptions.workerSrc = PDF_WORKER;
+      return file.arrayBuffer().then(function (buf) { return lib.getDocument({ data: buf }).promise; });
+    }).then(function (pdf) {
+      var pages = Math.min(pdf.numPages, 3), out = [], chain = Promise.resolve();
+      var _loop = function (p) {
+        chain = chain.then(function () { return pdf.getPage(p); }).then(function (page) { return page.getTextContent(); }).then(function (tc) {
+          var rows = {};
+          tc.items.forEach(function (it) {
+            if (!it.str || !it.str.trim()) return;
+            var y = Math.round(it.transform[5] / 3);
+            (rows[y] = rows[y] || []).push([it.transform[4], it.str]);
+          });
+          Object.keys(rows).map(Number).sort(function (a, b) { return b - a; }).forEach(function (y) {
+            out.push(rows[y].sort(function (a, b) { return a[0] - b[0]; }).map(function (x) { return x[1]; }).join(' ').replace(/\s+/g, ' ').trim());
+          });
+        });
+      };
+      for (var p = 1; p <= pages; p++) _loop(p);
+      return chain.then(function () { return out.join('\n'); });
+    });
+  }
+
+  function guessName(lines) {
+    var skip = /curriculum|vitae|życiorys|zyciorys|\bcv\b|resume|dane osobowe|kontakt/i;
+    for (var i = 0; i < Math.min(lines.length, 12); i++) {
+      var t = lines[i].trim();
+      var lab = t.match(/^(?:imi[eę] i nazwisko|name)\s*[:\-]\s*(.+)$/i);
+      if (lab) return lab[1].trim();
+      if (!t || skip.test(t) || /[\d@]/.test(t) || posScore(t).score > 0) continue;
+      if (/^\p{Lu}[\p{Ll}'’-]+(?:\s+\p{Lu}[\p{Ll}'’-]+){1,2}$/u.test(t)) return t;
+    }
+    return '';
+  }
+  function parseCv(text) {
+    var lines = text.split('\n');
+    var email = (text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/) || [''])[0];
+    var phone = '';
+    var pm = text.match(/(?:\+?48[\s-]?)?(?:\d[\s-]?){9}/);
+    if (pm) {
+      var digits = pm[0].replace(/\D/g, '');
+      if (digits.length === 11 && digits.indexOf('48') === 0) digits = digits.slice(2);
+      if (digits.length === 9) phone = '+48 ' + digits.slice(0, 3) + ' ' + digits.slice(3, 6) + ' ' + digits.slice(6);
+    }
+    var nt = norm(text), city = '';
+    CITIES.forEach(function (c) {
+      var stem = norm(c).slice(0, -1);
+      if (!city && nt.indexOf(stem) > -1) city = c;
+    });
+    var ps = posScore(text);
+    return {
+      form: { name: guessName(lines), email: email, phone: phone, city: city, position: ps.index > -1 ? POSITIONS[ps.index] : '' },
+      rodo: /zgod/i.test(text) && /przetwarzani/i.test(text)
+    };
+  }
+
+  function openReview(raw, source, file, subject) {
+    var p = parseCv(raw);
+    state.modal = {
+      type: 'new', step: 2, source: source, file: file, raw: raw, rodo: p.rodo, subject: subject || '',
+      form: p.form,
+      detected: { name: !!p.form.name, email: !!p.form.email, phone: !!p.form.phone, city: !!p.form.city, position: !!p.form.position },
+      error: ''
+    };
+    renderModal();
+  }
+
+  function handleFile(file) {
+    var m = state.modal;
+    if (!/pdf$/i.test(file.name) && file.type !== 'application/pdf') { m.error = 'Wybierz plik w formacie PDF.'; renderModal(); return; }
+    if (file.size > 10 * 1024 * 1024) { m.error = 'Plik jest większy niż 10 MB.'; renderModal(); return; }
+    m.busy = true; m.error = ''; renderModal();
+    var meta = { name: file.name, size: Math.max(1, Math.round(file.size / 1024)) + ' KB' };
+    extractPdf(file).then(function (text) {
+      if (!text.trim()) throw new Error('empty');
+      openReview(text, 'upload', meta);
+    }).catch(function () {
+      state.modal.busy = false;
+      openReview('', 'upload', meta);
+      state.modal.error = 'Nie udało się odczytać tekstu z pliku PDF (może to skan). Uzupełnij dane ręcznie.';
+      renderModal();
+    });
+  }
+
+  function simulate() {
+    var s = INCOMING[state.incomingIdx % INCOMING.length];
+    state.incomingIdx++;
+    var email = slug(s.name) + '@example.com';
+    var raw = [s.name, POSITIONS[s.pos], 'E-mail: ' + email, 'Tel.: ' + s.phone, s.city,
+      'Doświadczenie zawodowe: ' + (2 + state.incomingIdx) + ' lata', CLAUSE].join('\n');
+    openReview(raw, 'email', { name: 'CV_' + fileSlug(s.name) + '.pdf', size: (180 + state.incomingIdx * 23) + ' KB' }, 'Aplikacja – ' + POSITIONS[s.pos] + ' (' + s.city + ')');
+  }
+
+  function createCandidate() {
+    var m = state.modal, f = m.form;
+    if (!f.name.trim() || !f.city || !f.position) {
+      m.error = 'Uzupełnij imię i nazwisko, miasto i stanowisko.';
+      renderModal();
+      return;
+    }
+    var now = new Date().toISOString();
+    var viaMail = m.source === 'email';
+    var c = {
+      id: uid(), name: f.name.trim(), city: f.city, position: f.position, status: 'new',
+      email: f.email.trim() || '—', phone: f.phone.trim() || '—',
+      received: now, channel: viaMail ? 'E-mail' : 'Wgrano ręcznie',
+      from: f.email.trim() || '—',
+      subject: viaMail ? m.subject : '— (plik wgrany ręcznie)',
+      cityBasis: m.detected.city && m.form.city === parseCv(m.raw).form.city ? 'adresu lub treści w CV' : 'wpisano ręcznie',
+      file: m.file.name, size: m.file.size, rodo: !!m.rodo,
+      cv: { edu: '', exp: [], skills: [] }, rawText: m.raw || '',
+      notes: [], rejectionSent: false,
+      history: [
+        { at: now, text: viaMail ? 'Otrzymano zgłoszenie e-mailem (symulacja)' : 'Wgrano CV ręcznie' },
+        { at: now, text: 'Utworzono profil kandydata (automatycznie z załącznika PDF)' },
+        { at: now, text: 'Wysłano potwierdzenie przyjęcia zgłoszenia (automatyczna odpowiedź, symulacja)' }
+      ]
+    };
+    if (!c.rawText) c.rawText = '(brak tekstu do wyświetlenia)';
+    state.candidates.unshift(c);
+    save();
+    state.modal = null;
+    state.city = 'all'; state.status = 'all'; state.q = ''; $('#q').value = '';
+    state.sel = c.id;
+    renderModal();
+    render();
+    toast('Utworzono profil kandydata: ' + c.name);
+  }
+
+  /* ---------- actions ---------- */
+  var toastTimer;
+  function toast(msg) {
+    var t = $('#toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2600);
+  }
+  function log(c, text) { c.history.push({ at: new Date().toISOString(), text: text }); }
+
+  var actions = {
+    select: function (t) { state.sel = t.dataset.id; renderList(); renderDetail(); $('#app').classList.add('show-detail'); window.scrollTo(0, 0); },
+    back: function () { state.sel = null; render(); },
+    tab: function (t) { state.city = t.dataset.city; render(); },
+    pill: function (t) { state.status = t.dataset.status; render(); },
+    clear: function () { state.city = role().city || 'all'; state.status = 'all'; state.q = ''; $('#q').value = ''; render(); },
+    status: function (t) {
+      var c = byId(state.sel);
+      if (!c || !role().canEdit || c.status === t.dataset.status) return;
+      var next = t.dataset.status;
+      log(c, 'Zmiana statusu: ' + stOf(c.status).label + ' → ' + stOf(next).label);
+      c.status = next;
+      if (next !== 'rejected') c.rejectionSent = false;
+      save(); render();
+      toast('Status zmieniony na „' + stOf(next).label + '”');
+    },
+    thanks: function () {
+      var c = byId(state.sel);
+      if (!c) return;
+      c.rejectionSent = true;
+      log(c, 'Wysłano podziękowanie za udział w rekrutacji (symulacja)');
+      save(); renderDetail();
+      toast('Podziękowanie wysłane (symulacja, żadna wiadomość nie wyszła)');
+    },
+    note: function () {
+      var c = byId(state.sel), ta = $('#note');
+      if (!c || !ta || !ta.value.trim()) return;
+      var r = role();
+      c.notes.push({ by: r.canEdit ? 'Agnieszka (HR)' : 'Kierownik oddziału – ' + r.city, at: new Date().toISOString(), text: ta.value.trim() });
+      state.drafts[c.id] = '';
+      save(); renderDetail();
+      toast(r.canEdit ? 'Dodano notatkę' : 'Dodano komentarz');
+    },
+    new: function () { state.modal = { type: 'new', step: 1, busy: false, error: '' }; renderModal(); },
+    issues: function () { state.modal = { type: 'issues' }; renderModal(); },
+    close: function () { state.modal = null; renderModal(); },
+    overlay: function (t, e) { if (e.target === t) actions.close(); },
+    simulate: simulate,
+    create: createCandidate,
+    reset: function () {
+      state.candidates = buildSeed();
+      state.city = 'all'; state.status = 'all'; state.q = ''; state.sel = null; state.drafts = {};
+      $('#q').value = '';
+      save(); render();
+      toast('Przywrócono dane demonstracyjne');
+    }
+  };
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-action]');
+    if (!t) return;
+    var fn = actions[t.dataset.action];
+    if (fn) fn(t, e);
+  });
+  document.addEventListener('input', function (e) {
+    var t = e.target;
+    if (t.id === 'q') { state.q = t.value; renderTabs(); renderPills(); renderList(); if (!state.sel && !narrow()) render(); }
+    else if (t.id === 'note' && state.sel) { state.drafts[state.sel] = t.value; }
+    else if (t.dataset && t.dataset.form && state.modal) {
+      state.modal.form[t.dataset.form] = t.value;
+      if (t.dataset.form === 'email') { var dupEl = $('#dup'); if (dupEl) { var em = t.value.trim().toLowerCase(); var d = em && state.candidates.filter(function (c) { return c.email.toLowerCase() === em; })[0]; dupEl.innerHTML = d ? '<p class="notice">Kandydat z tym adresem e-mail już istnieje (zgłoszenie z ' + esc(fmtDay(d.received)) + '). Utworzenie nowego profilu doda duplikat.</p>' : ''; } }
+    }
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.id === 'role') {
+      state.role = t.value; var r = role();
+      state.city = r.city || 'all'; state.status = 'all'; state.sel = null;
+      save(); render();
+    } else if (t.id === 'sort') { state.sort = t.value; renderList(); }
+    else if (t.dataset && t.dataset.field && state.sel) {
+      var c = byId(state.sel);
+      if (!c || !role().canEdit) return;
+      var field = t.dataset.field;
+      if (field === 'city') { log(c, 'Zmieniono miasto: ' + c.city + ' → ' + t.value + ' (ręczna korekta)'); c.city = t.value; c.cityBasis = 'ręcznej korekty HR'; }
+      else { log(c, 'Zmieniono stanowisko: ' + c.position + ' → ' + t.value + ' (ręczna korekta)'); c.position = t.value; }
+      save(); render();
+      toast('Zapisano zmianę');
+    } else if (t.dataset && t.dataset.form && state.modal) {
+      state.modal.form[t.dataset.form] = t.value;
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && state.modal) actions.close();
+  });
+  window.matchMedia('(max-width: 899px)').addEventListener('change', function () { render(); });
+
+  /* ---------- start ---------- */
+  load();
+  render();
+})();
+</script>

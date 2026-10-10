@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+
+# local database and uploads
+*.db
+*.sqlite
+data/
+uploads/
+
+# build output
+dist/
+build/
+.next/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
