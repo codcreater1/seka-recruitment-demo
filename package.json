@@ -1,6 +1,6 @@
 {
   "name": "seka-recruitment-demo",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "description": "Recruitment management demo (Polish UI, fictional data)",
   "scripts": {

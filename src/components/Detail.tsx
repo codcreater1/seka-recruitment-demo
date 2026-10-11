@@ -21,6 +21,7 @@ import {
 } from '@/lib/domain';
 import { displayName, fmtDate, fmtDay, fmtSize } from './ui';
 import { Avatar, Chip } from './Chip';
+import Icon from './Icon';
 
 export type FeedbackInput = {
   communication: number;
@@ -319,7 +320,20 @@ export default function Detail({
                   <dt>Odebrano</dt>
                   <dd>{fmtDate(c.receivedAt)}</dd>
                   <dt>Załącznik</dt>
-                  <dd className="mono">{c.file ? `${anon ? 'CV.pdf' : c.file.name} (${fmtSize(c.file.size)})` : 'brak'}</dd>
+                  <dd className="mono">
+                    {c.file ? (
+                      anon ? (
+                        `CV.pdf (${fmtSize(c.file.size)})`
+                      ) : (
+                        <a className="link" href={`/api/candidates/${c.id}/file?download=1`} download>
+                          {c.file.name}
+                        </a>
+                      )
+                    ) : (
+                      'brak'
+                    )}
+                    {c.file && !anon && ` (${fmtSize(c.file.size)})`}
+                  </dd>
                 </dl>
               </div>
             </section>
@@ -349,6 +363,16 @@ export default function Detail({
               <p className="hint">W trybie anonimowym podgląd dokumentu jest ukryty, ponieważ CV zawiera dane osobowe.</p>
             ) : c.file ? (
               <>
+                <div className="cv-bar">
+                  <a className="btn small primary link-btn" href={`/api/candidates/${c.id}/file?download=1`} download>
+                    <Icon name="download" size={16} />
+                    Pobierz CV (PDF)
+                  </a>
+                  <a className="btn small link-btn" href={`/api/candidates/${c.id}/file`} target="_blank" rel="noopener noreferrer">
+                    Otwórz w nowej karcie
+                  </a>
+                  <span className="hint">{c.file.name} · {fmtSize(c.file.size)}</span>
+                </div>
                 <iframe className="pdf" title={`CV: ${c.name}`} src={`/api/candidates/${c.id}/file#toolbar=0&navpanes=0&view=FitH`} />
                 <details className="raw">
                   <summary>Tekst odczytany z PDF</summary>

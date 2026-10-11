@@ -88,6 +88,22 @@ test('demo data is loaded and PDFs are served', async () => {
   assert.ok(pdf.raw.startsWith('%PDF'));
 });
 
+test('the CV can be downloaded and the download is logged', async () => {
+  const anna = await byName('Anna Kowalczyk');
+  const inline = await call(`/api/candidates/${anna.id}/file`);
+  assert.match(inline.headers.get('content-disposition'), /^inline/);
+  const dl = await call(`/api/candidates/${anna.id}/file?download=1`);
+  assert.equal(dl.status, 200);
+  assert.equal(dl.headers.get('content-type'), 'application/pdf');
+  assert.match(dl.headers.get('content-disposition'), /^attachment; filename="CV_anna_kowalczyk\.pdf"; filename\*=UTF-8''/);
+  assert.ok(dl.raw.startsWith('%PDF'));
+  const audit = (await call('/api/audit')).body.entries;
+  assert.ok(audit.some((e) => e.action === 'download-cv' && e.detail.includes('Anna Kowalczyk')));
+  // a manager may download only CVs of their own city
+  const foreign = (await candidates()).find((c) => c.city === 'Warszawa');
+  assert.equal((await call(`/api/candidates/${foreign.id}/file?download=1`, {}, MANAGER)).status, 404);
+});
+
 test('a branch manager only sees their own city', async () => {
   const mine = await candidates(MANAGER);
   assert.ok(mine.length > 0);

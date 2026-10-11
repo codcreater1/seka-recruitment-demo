@@ -22,7 +22,7 @@ Branch managers get access to the candidates of their own city only.
 | Views | List with profile, Kanban board (drag a card to change status), interview calendar, vacancies, summary dashboard |
 | Applications | City tabs, status filters, quick filters, sorting, CSV export |
 | Search | Name, position, e-mail and the **text of the CVs** (SQLite FTS5, diacritics-insensitive) |
-| Profile | Contact data, source e-mail, embedded CV (PDF), facts read from the CV, notes, history, rating, interview date |
+| Profile | Contact data, source e-mail, embedded CV (PDF) with a download button (downloads are logged), facts read from the CV, notes, history, rating, interview date |
 | Status pipeline | Nowa, W weryfikacji, Rozmowa, Oferta, Zatrudniony/a, Odrzucona |
 | Vacancies (Ogłoszenia) | Open and closed vacancies per city and position, applications linked automatically at intake, candidate counts per stage |
 | Talent pool (Baza kandydatów) | Candidates whose CV consents to future recruitments; longer retention period (`POOL_RETENTION_MONTHS`) |
