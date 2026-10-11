@@ -21,7 +21,8 @@ import Board from './Board';
 import Calendar from './Calendar';
 import Vacancies from './Vacancies';
 import Summary, { type QuickFilter } from './Summary';
-import { Chip, STATUS_VAR } from './Chip';
+import { Avatar, Chip, STATUS_VAR } from './Chip';
+import Icon, { type IconName } from './Icon';
 import { AuditModal, GuideModal, IssuesModal, NewModal, type GuideStep } from './Modals';
 
 type RoleOption = { id: string; label: string };
@@ -44,6 +45,17 @@ const VIEW_LABEL: Record<View, string> = {
   summary: 'Podsumowanie',
 };
 const ANON_KEY = 'panel-rekrutacji-anon';
+const THEME_KEY = 'panel-rekrutacji-theme';
+type Theme = 'auto' | 'light' | 'dark';
+const THEME_LABEL: Record<Theme, string> = { auto: 'Auto', light: 'Jasny', dark: 'Ciemny' };
+const VIEW_ICON: Record<View, IconName> = { list: 'list', board: 'board', calendar: 'calendar', vacancies: 'briefcase', summary: 'chart' };
+const VIEW_TITLE: Record<View, string> = {
+  list: 'Zgłoszenia',
+  board: 'Tablica statusów',
+  calendar: 'Kalendarz rozmów',
+  vacancies: 'Ogłoszenia',
+  summary: 'Podsumowanie',
+};
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -63,6 +75,9 @@ export default function App() {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<'new' | 'old' | 'name'>('new');
   const [anon, setAnon] = useState(false);
+  const [theme, setTheme] = useState<Theme>('auto');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const detailRef = useRef<HTMLElement>(null);
   const [hits, setHits] = useState<Record<string, string>>({});
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulkConfirm, setBulkConfirm] = useState(false);
@@ -113,6 +128,33 @@ export default function App() {
       })
       .catch((e: Error) => setError(e.message));
   }, [loadSession, loadList, loadVacancies]);
+
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem(THEME_KEY);
+      if (t === 'light' || t === 'dark') setTheme(t);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+
+  const chooseTheme = (t: Theme) => {
+    setTheme(t);
+    const el = document.documentElement;
+    if (t === 'auto') el.removeAttribute('data-theme');
+    else el.setAttribute('data-theme', t);
+    try {
+      if (t === 'auto') localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, t);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // a newly opened profile starts at its top
+  useEffect(() => {
+    detailRef.current?.scrollTo?.({ top: 0 });
+  }, [selId]);
 
   const toggleAnon = (on: boolean) => {
     setAnon(on);
@@ -473,282 +515,364 @@ export default function App() {
   const drawerOpen = (view === 'board' || view === 'calendar') && selId !== null;
   const showFilters = view === 'list' || view === 'board' || view === 'calendar';
 
+  const subtitle =
+    view === 'summary'
+      ? 'Przegląd rekrutacji i spraw wymagających uwagi'
+      : view === 'vacancies'
+        ? 'Ogłoszenia i liczba zgłoszeń w każdym z nich'
+        : view === 'calendar'
+          ? 'Rozmowy kwalifikacyjne w ujęciu tygodniowym'
+          : `${visible.length} z ${total} zgłoszeń`;
+
   return (
-    <div className={`app${view === 'list' && selId !== null ? ' show-detail' : ''}`}>
-      <header className="top">
-        <div className="brand">
-          {/* logo from seka.pl, 107x70 px */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="logo" src="/seka-logo.png" alt="SEKA" width={60} height={39} />
-          <div className="brand-divider" aria-hidden="true" />
-          <div>
-            <div className="brand-name">Panel rekrutacji</div>
-            <div className="brand-sub">Wersja demonstracyjna · dane fikcyjne</div>
+    <div className={`shell${view === 'list' && selId !== null ? ' show-detail' : ''}${menuOpen ? ' menu-open' : ''}`}>
+      <aside className="side">
+        <div className="side-top">
+          <div className="brand">
+            {/* logo from seka.pl, 107x70 px */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="logo" src="/seka-logo.png" alt="SEKA" width={60} height={39} />
+            <div>
+              <div className="brand-name">Panel rekrutacji</div>
+              <div className="brand-sub">Wersja demonstracyjna</div>
+            </div>
           </div>
+          <button
+            className="btn small menu-btn"
+            type="button"
+            aria-expanded={menuOpen}
+            aria-controls="side-more"
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            <Icon name="menu" size={16} />
+            Menu
+          </button>
         </div>
-        <div className="top-actions">
-          <label className="role" htmlFor="role">
-            <span>Widok</span>
+
+        {canEdit && (
+          <button className="btn primary wide" type="button" onClick={() => setModal('new')}>
+            <Icon name="plus" size={16} />
+            Nowe zgłoszenie
+          </button>
+        )}
+
+        <nav className="nav" aria-label="Widoki">
+          {(Object.keys(VIEW_LABEL) as View[]).map((v) => (
+            <button
+              key={v}
+              className="nav-item"
+              type="button"
+              aria-current={view === v ? 'page' : undefined}
+              onClick={() => {
+                go(v);
+                setMenuOpen(false);
+              }}
+            >
+              <Icon name={VIEW_ICON[v]} />
+              <span>{VIEW_LABEL[v]}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="side-more" id="side-more">
+          <div className="side-block">
+            <label className="side-label" htmlFor="role">Zalogowano jako</label>
             <select id="role" value={session?.id ?? 'hr'} onChange={(e) => changeRole(e.target.value)}>
               {roles.map((r) => (
                 <option key={r.id} value={r.id}>{r.label}</option>
               ))}
             </select>
-          </label>
-          <label className="anon-toggle" htmlFor="anon">
+          </div>
+          <label className="switch" htmlFor="anon">
             <input id="anon" type="checkbox" checked={anon} onChange={(e) => toggleAnon(e.target.checked)} />
-            Tryb anonimowy
+            <span>Tryb anonimowy</span>
           </label>
-          <button className="btn" type="button" onClick={() => setModal('guide')}>Przewodnik</button>
-          {canEdit && <button className="btn" type="button" onClick={() => setModal('audit')}>Dziennik zdarzeń</button>}
-          <button className="btn" type="button" onClick={() => setModal('issues')}>Do omówienia</button>
-          {canEdit && <button className="btn primary" type="button" onClick={() => setModal('new')}>Nowe zgłoszenie</button>}
-        </div>
-      </header>
-
-      {session && !canEdit && (
-        <div className="notice">
-          Widok kierownika oddziału: widzisz tylko zgłoszenia z miasta {session.city}. Możesz przeglądać profile,
-          dodawać komentarze i opinie po rozmowach. Zakres uprawnień jest do ustalenia.
-        </div>
-      )}
-      {anon && (
-        <div className="notice">
-          Tryb anonimowy jest włączony: imiona, e-maile i podgląd CV są ukryte. To widok pomocniczy, dokument CV
-          nadal zawiera dane osobowe.
-        </div>
-      )}
-      {error && <div className="notice">Nie udało się wczytać danych: {error}</div>}
-
-      <div className="viewbar">
-        <div className="seg" role="group" aria-label="Widok danych">
-          {(Object.keys(VIEW_LABEL) as View[]).map((v) => (
-            <button key={v} type="button" aria-pressed={view === v} onClick={() => go(v)}>{VIEW_LABEL[v]}</button>
-          ))}
-        </div>
-        {canEdit && !anon && (
-          <div className="viewbar-actions">
-            <a className="btn link-btn" href="/api/export">Eksport CSV</a>
-          </div>
-        )}
-      </div>
-
-      {showFilters && (
-        <div className="toolbar">
-          {session?.city ? (
-            <div className="branch-label">
-              Oddział: {session.city}
-              <span>{total} zgłoszeń łącznie</span>
-            </div>
-          ) : (
-            <nav className="tabs" role="tablist" aria-label="Miasto">
-              {['all', ...cityTabs].map((c) => (
-                <button key={c} className="tab" role="tab" type="button" aria-selected={city === c} onClick={() => setCity(c)}>
-                  {c === 'all' ? 'Wszystkie miasta' : c}
-                  <span className="n">{countFor({ city: c })}</span>
+          <div className="side-block">
+            <span className="side-label">Motyw</span>
+            <div className="theme-seg" role="group" aria-label="Motyw">
+              {(['auto', 'light', 'dark'] as Theme[]).map((t) => (
+                <button key={t} type="button" aria-pressed={theme === t} onClick={() => chooseTheme(t)}>
+                  {THEME_LABEL[t]}
                 </button>
               ))}
-            </nav>
-          )}
-          <div className="filters">
-            <input
-              id="q"
-              type="search"
-              placeholder={anon ? 'Szukaj: stanowisko, miasto lub treść CV' : 'Szukaj: nazwisko, stanowisko, e-mail lub treść CV'}
-              aria-label="Szukaj zgłoszeń"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-            <select id="sort" aria-label="Sortowanie" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-              <option value="new">Najnowsze</option>
-              <option value="old">Najstarsze</option>
-              <option value="name" disabled={anon}>Nazwisko A–Z</option>
-            </select>
+            </div>
           </div>
-          <div className="quick">
-            <span className="hint">Filtry:</span>
-            <button
-              className="qchip"
-              type="button"
-              aria-pressed={quick === 'pool'}
-              title="Kandydaci, którzy wyrazili zgodę na udział w przyszłych rekrutacjach"
-              onClick={() => setQuick(quick === 'pool' ? null : 'pool')}
-            >
-              Baza kandydatów
+          <div className="side-links">
+            <button className="side-link" type="button" onClick={() => { setModal('guide'); setMenuOpen(false); }}>
+              <Icon name="book" size={16} />Przewodnik po demo
             </button>
-            {quick && quick !== 'pool' && (
-              <button className="qchip" type="button" aria-pressed="true" onClick={() => setQuick(null)}>
-                {QUICK_LABEL[quick]} ✕
+            {canEdit && (
+              <button className="side-link" type="button" onClick={() => { setModal('audit'); setMenuOpen(false); }}>
+                <Icon name="history" size={16} />Dziennik zdarzeń
               </button>
             )}
-            {vacancyFilter && (
-              <button className="qchip" type="button" aria-pressed="true" onClick={() => setVacancyFilter(null)}>
-                Ogłoszenie: {vacancyLabel ? `${vacancyLabel.position} (${vacancyLabel.city})` : '…'} ✕
-              </button>
+            <button className="side-link" type="button" onClick={() => { setModal('issues'); setMenuOpen(false); }}>
+              <Icon name="help" size={16} />Do omówienia
+            </button>
+            {canEdit && !anon && (
+              <a className="side-link" href="/api/export">
+                <Icon name="download" size={16} />Eksport CSV
+              </a>
             )}
           </div>
+          <div className="side-foot">Dane fikcyjne · wersja 0.5</div>
         </div>
-      )}
+      </aside>
 
-      {view === 'list' && (
-        <main className="layout">
-          <section className="list-pane" aria-label="Lista zgłoszeń">
-            <div className="pills">
-              <button className="pill" type="button" aria-pressed={status === 'all'} onClick={() => setStatus('all')}>
-                Wszystkie<span className="n">{countFor({ status: 'all' })}</span>
-              </button>
-              {STATUSES.map((s) => (
-                <button
-                  key={s.id}
-                  className="pill"
-                  type="button"
-                  aria-pressed={status === s.id}
-                  style={{ ['--dot' as string]: `var(${STATUS_VAR[s.id]})` }}
-                  onClick={() => setStatus(s.id)}
-                >
-                  <i />
-                  {s.label}
-                  <span className="n">{countFor({ status: s.id })}</span>
-                </button>
-              ))}
+      <div className="main">
+        <header className="topbar">
+          <div>
+            <h1>{VIEW_TITLE[view]}</h1>
+            <p className="sub">{subtitle}</p>
+          </div>
+          {showFilters && (
+            <div className="top-tools">
+              <div className="search">
+                <Icon name="search" size={16} />
+                <input
+                  id="q"
+                  type="search"
+                  placeholder={anon ? 'Szukaj: stanowisko, miasto lub treść CV' : 'Szukaj: nazwisko, stanowisko, e-mail lub treść CV'}
+                  aria-label="Szukaj zgłoszeń"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+              </div>
+              <select id="sort" aria-label="Sortowanie" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+                <option value="new">Najnowsze</option>
+                <option value="old">Najstarsze</option>
+                <option value="name" disabled={anon}>Nazwisko A–Z</option>
+              </select>
             </div>
+          )}
+        </header>
 
-            {canEdit && picked.size > 0 && (
-              <div className="bulkbar" role="region" aria-label="Operacje zbiorcze">
-                <span>Zaznaczono: <strong>{picked.size}</strong></span>
-                {!bulkConfirm ? (
-                  <>
-                    <button className="btn small danger" type="button" disabled={!pickedRejectable.length} onClick={() => setBulkConfirm(true)}>
-                      Odrzuć i wyślij podziękowanie
-                    </button>
-                    <button className="btn small" type="button" onClick={() => setPicked(new Set())}>Wyczyść zaznaczenie</button>
-                  </>
-                ) : (
-                  <>
-                    <span>Odrzucić {pickedRejectable.length} zgłoszeń i wysłać każdemu podziękowanie?</span>
-                    <button className="btn small danger" type="button" onClick={() => runBulk('reject-and-thank', pickedRejectable)}>Tak, wykonaj</button>
-                    <button className="btn small" type="button" onClick={() => setBulkConfirm(false)}>Anuluj</button>
-                  </>
-                )}
+        {((session && !canEdit) || anon || error) && (
+          <div className="notices">
+            {session && !canEdit && (
+              <div className="notice">
+                Widok kierownika oddziału: widzisz tylko zgłoszenia z miasta {session.city}. Możesz przeglądać profile,
+                dodawać komentarze i opinie po rozmowach. Zakres uprawnień jest do ustalenia.
               </div>
             )}
+            {anon && (
+              <div className="notice">
+                Tryb anonimowy jest włączony: imiona, e-maile i podgląd CV są ukryte. To widok pomocniczy, dokument CV
+                nadal zawiera dane osobowe.
+              </div>
+            )}
+            {error && <div className="notice">Nie udało się wczytać danych: {error}</div>}
+          </div>
+        )}
 
-            <div className="count">
-              Wyświetlono {visible.length} z {total}
-              {canEdit && visible.length > 0 && (
-                <>
-                  {' · '}
-                  <button className="link" type="button" onClick={() => setPicked(new Set(visible.map((c) => c.id)))}>
-                    zaznacz widoczne
+        {showFilters && (
+          <div className="subbar">
+            {session?.city ? (
+              <div className="branch-label">
+                Oddział: {session.city}
+                <span>{total} zgłoszeń łącznie</span>
+              </div>
+            ) : (
+              <nav className="tabs" role="tablist" aria-label="Miasto">
+                {['all', ...cityTabs].map((c) => (
+                  <button key={c} className="tab" role="tab" type="button" aria-selected={city === c} onClick={() => setCity(c)}>
+                    {c === 'all' ? 'Wszystkie miasta' : c}
+                    <span className="n">{countFor({ city: c })}</span>
                   </button>
-                </>
+                ))}
+              </nav>
+            )}
+            <div className="quick">
+              <span className="hint">Filtry:</span>
+              <button
+                className="qchip"
+                type="button"
+                aria-pressed={quick === 'pool'}
+                title="Kandydaci, którzy wyrazili zgodę na udział w przyszłych rekrutacjach"
+                onClick={() => setQuick(quick === 'pool' ? null : 'pool')}
+              >
+                Baza kandydatów
+              </button>
+              {quick && quick !== 'pool' && (
+                <button className="qchip" type="button" aria-pressed="true" onClick={() => setQuick(null)}>
+                  {QUICK_LABEL[quick]} ✕
+                </button>
+              )}
+              {vacancyFilter && (
+                <button className="qchip" type="button" aria-pressed="true" onClick={() => setVacancyFilter(null)}>
+                  Ogłoszenie: {vacancyLabel ? `${vacancyLabel.position} (${vacancyLabel.city})` : '…'} ✕
+                </button>
               )}
             </div>
-            <ul className="list">
-              {!loaded && <li><div className="loading">Wczytywanie zgłoszeń…</div></li>}
-              {loaded && visible.length === 0 && (
-                <li>
-                  <div className="empty">
-                    <p>Brak zgłoszeń dla wybranych filtrów.</p>
-                    <button className="btn small" type="button" onClick={clearFilters}>Wyczyść filtry</button>
+          </div>
+        )}
+
+        <div className={`content${view === 'list' ? ' fill' : ''}`}>
+          {view === 'list' && (
+            <main className="layout">
+              <section className="list-pane" aria-label="Lista zgłoszeń">
+                <div className="list-head">
+                  <div className="pills">
+                    <button className="pill" type="button" aria-pressed={status === 'all'} onClick={() => setStatus('all')}>
+                      Wszystkie<span className="n">{countFor({ status: 'all' })}</span>
+                    </button>
+                    {STATUSES.map((s) => (
+                      <button
+                        key={s.id}
+                        className="pill"
+                        type="button"
+                        aria-pressed={status === s.id}
+                        style={{ ['--dot' as string]: `var(${STATUS_VAR[s.id]})` }}
+                        onClick={() => setStatus(s.id)}
+                      >
+                        <i />
+                        {s.label}
+                        <span className="n">{countFor({ status: s.id })}</span>
+                      </button>
+                    ))}
                   </div>
-                </li>
-              )}
-              {visible.map((c) => (
-                <li key={c.id} className="row-wrap">
-                  {canEdit && (
-                    <input
-                      className="pick"
-                      type="checkbox"
-                      aria-label={`Zaznacz: ${displayName(c, anon)}`}
-                      checked={picked.has(c.id)}
-                      onChange={() => togglePick(c.id)}
-                    />
+
+                  {canEdit && picked.size > 0 && (
+                    <div className="bulkbar" role="region" aria-label="Operacje zbiorcze">
+                      <span>Zaznaczono: <strong>{picked.size}</strong></span>
+                      {!bulkConfirm ? (
+                        <>
+                          <button className="btn small danger" type="button" disabled={!pickedRejectable.length} onClick={() => setBulkConfirm(true)}>
+                            Odrzuć i wyślij podziękowanie
+                          </button>
+                          <button className="btn small" type="button" onClick={() => setPicked(new Set())}>Wyczyść zaznaczenie</button>
+                        </>
+                      ) : (
+                        <>
+                          <span>Odrzucić {pickedRejectable.length} zgłoszeń i wysłać każdemu podziękowanie?</span>
+                          <button className="btn small danger" type="button" onClick={() => runBulk('reject-and-thank', pickedRejectable)}>Tak, wykonaj</button>
+                          <button className="btn small" type="button" onClick={() => setBulkConfirm(false)}>Anuluj</button>
+                        </>
+                      )}
+                    </div>
                   )}
-                  <button
-                    className="row"
-                    type="button"
-                    aria-current={c.id === selId ? 'true' : undefined}
-                    onClick={() => {
-                      setSelId(c.id);
-                      window.scrollTo(0, 0);
-                    }}
-                  >
-                    <span className="row-name">{displayName(c, anon)}</span>
-                    <Chip status={c.status} />
-                    <span className="row-meta">{c.position} · {c.city}</span>
-                    <span className="row-date">{rel(c.receivedAt)}</span>
-                    {hits[c.id] && !anon && <span className="row-snippet">{hits[c.id]}</span>}
-                    {(c.needsReview || c.duplicateOf || c.retentionDue || c.consentFuture || (c.status === 'interview' && c.interviewAt)) && (
-                      <span className="row-badges">
-                        {c.needsReview && <span className="badge">Do sprawdzenia</span>}
-                        {c.duplicateOf && <span className="badge">Możliwy duplikat</span>}
-                        {c.retentionDue && <span className="badge">Minął okres przechowywania</span>}
-                        {c.consentFuture && <span className="badge ok">Baza kandydatów</span>}
-                        {c.status === 'interview' && c.interviewAt && (
-                          <span className="badge info">Rozmowa: {fmtInterview(c.interviewAt)}</span>
-                        )}
-                      </span>
+
+                  <div className="count">
+                    Wyświetlono {visible.length} z {total}
+                    {canEdit && visible.length > 0 && (
+                      <>
+                        {' · '}
+                        <button className="link" type="button" onClick={() => setPicked(new Set(visible.map((c) => c.id)))}>
+                          zaznacz widoczne
+                        </button>
+                      </>
                     )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
+                  </div>
+                </div>
 
-          <section className="detail-pane" aria-label="Profil kandydata">
-            {detailEl ?? <div className="empty"><p>Wybierz zgłoszenie z listy, aby zobaczyć profil kandydata.</p></div>}
-          </section>
-        </main>
-      )}
+                <ul className="list">
+                  {!loaded && <li><div className="loading">Wczytywanie zgłoszeń…</div></li>}
+                  {loaded && visible.length === 0 && (
+                    <li>
+                      <div className="empty">
+                        <p>Brak zgłoszeń dla wybranych filtrów.</p>
+                        <button className="btn small" type="button" onClick={clearFilters}>Wyczyść filtry</button>
+                      </div>
+                    </li>
+                  )}
+                  {visible.map((c) => (
+                    <li key={c.id} className="row-wrap">
+                      {canEdit && (
+                        <input
+                          className="pick"
+                          type="checkbox"
+                          aria-label={`Zaznacz: ${displayName(c, anon)}`}
+                          checked={picked.has(c.id)}
+                          onChange={() => togglePick(c.id)}
+                        />
+                      )}
+                      <button
+                        className="row"
+                        type="button"
+                        aria-current={c.id === selId ? 'true' : undefined}
+                        onClick={() => {
+                          setSelId(c.id);
+                          if (narrow) window.scrollTo(0, 0);
+                        }}
+                      >
+                        <Avatar id={c.id} name={c.name} anon={anon} />
+                        <span className="row-name">{displayName(c, anon)}</span>
+                        <Chip status={c.status} />
+                        <span className="row-meta">{c.position} · {c.city}</span>
+                        <span className="row-date">{rel(c.receivedAt)}</span>
+                        {hits[c.id] && !anon && <span className="row-snippet">{hits[c.id]}</span>}
+                        {(c.needsReview || c.duplicateOf || c.retentionDue || c.consentFuture || (c.status === 'interview' && c.interviewAt)) && (
+                          <span className="row-badges">
+                            {c.needsReview && <span className="badge">Do sprawdzenia</span>}
+                            {c.duplicateOf && <span className="badge">Możliwy duplikat</span>}
+                            {c.retentionDue && <span className="badge">Minął okres przechowywania</span>}
+                            {c.consentFuture && <span className="badge ok">Baza kandydatów</span>}
+                            {c.status === 'interview' && c.interviewAt && (
+                              <span className="badge info">Rozmowa: {fmtInterview(c.interviewAt)}</span>
+                            )}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
 
-      {view === 'board' && <Board items={boardItems} canEdit={canEdit} anon={anon} onOpen={setSelId} onMove={moveCandidate} />}
-      {view === 'calendar' && <Calendar items={boardItems} anon={anon} onOpen={setSelId} />}
+              <section className="detail-pane" aria-label="Profil kandydata" ref={detailRef}>
+                {detailEl ?? <div className="empty"><p>Wybierz zgłoszenie z listy, aby zobaczyć profil kandydata.</p></div>}
+              </section>
+            </main>
+          )}
 
-      {view === 'vacancies' && (
-        <Vacancies
-          vacancies={vacancies}
-          canEdit={canEdit}
-          onCreate={createVacancy}
-          onToggle={toggleVacancy}
-          onShow={(id) => {
-            setVacancyFilter(id);
-            setStatus('all');
-            setQuick(null);
-            setCity(session?.city ?? 'all');
-            setView('list');
-            setSelId(null);
-          }}
-        />
-      )}
+          {view === 'board' && <Board items={boardItems} canEdit={canEdit} anon={anon} onOpen={setSelId} onMove={moveCandidate} />}
+          {view === 'calendar' && <Calendar items={boardItems} anon={anon} onOpen={setSelId} />}
 
-      {view === 'summary' && (
-        <Summary
-          stats={stats}
-          canEdit={canEdit}
-          anon={anon}
-          onVacancies={() => go('vacancies')}
-          onOpenCandidate={(id) => {
-            setView('list');
-            setSelId(id);
-          }}
-          onCity={(c) => {
-            setCity(session?.city ? session.city : c);
-            setStatus('all');
-            setQuick(null);
-            setVacancyFilter(null);
-            setView('list');
-          }}
-          onQuick={(f) => {
-            setQuick(f);
-            setStatus('all');
-            setVacancyFilter(null);
-            setCity(session?.city ?? 'all');
-            setView('list');
-          }}
-          onBulk={(action) => runBulk(action)}
-        />
-      )}
+          {view === 'vacancies' && (
+            <Vacancies
+              vacancies={vacancies}
+              canEdit={canEdit}
+              onCreate={createVacancy}
+              onToggle={toggleVacancy}
+              onShow={(id) => {
+                setVacancyFilter(id);
+                setStatus('all');
+                setQuick(null);
+                setCity(session?.city ?? 'all');
+                setView('list');
+                setSelId(null);
+              }}
+            />
+          )}
+
+          {view === 'summary' && (
+            <Summary
+              stats={stats}
+              canEdit={canEdit}
+              anon={anon}
+              onVacancies={() => go('vacancies')}
+              onOpenCandidate={(id) => {
+                setView('list');
+                setSelId(id);
+              }}
+              onCity={(c) => {
+                setCity(session?.city ? session.city : c);
+                setStatus('all');
+                setQuick(null);
+                setVacancyFilter(null);
+                setView('list');
+              }}
+              onQuick={(f) => {
+                setQuick(f);
+                setStatus('all');
+                setVacancyFilter(null);
+                setCity(session?.city ?? 'all');
+                setView('list');
+              }}
+              onBulk={(action) => runBulk(action)}
+            />
+          )}
+        </div>
+      </div>
 
       {drawerOpen && (
         <div className="drawer-overlay" onMouseDown={(e) => e.target === e.currentTarget && setSelId(null)}>
@@ -757,11 +881,6 @@ export default function App() {
           </aside>
         </div>
       )}
-
-      <footer className="foot">
-        <span>Dane są fikcyjne. Dostęp i uprawnienia są w demo symulowane wyborem widoku.</span>
-        <span>Wersja 0.4</span>
-      </footer>
 
       {modal === 'new' && <NewModal onClose={() => setModal(null)} onCreated={onCreated} />}
       {modal === 'issues' && <IssuesModal onClose={() => setModal(null)} />}

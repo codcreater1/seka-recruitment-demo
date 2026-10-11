@@ -8,6 +8,8 @@ Branch managers get access to the candidates of their own city only.
 - UI language: Polish
 - Look: logo, colours and typeface follow the SEKA website (blue #1b3985, Plus Jakarta Sans). The logo file
   `public/seka-logo.png` belongs to SEKA S.A. and is used here only for this demonstration.
+- Layout: sidebar navigation, list and profile panels that scroll independently (the page itself never scrolls),
+  light and dark theme (follows the system, can be switched in the sidebar).
 - Data: fictional (generated, see `scripts/generate_seed.py`)
 - Authentication: demo role switcher (target: Microsoft Entra ID SSO, see "Authentication")
 

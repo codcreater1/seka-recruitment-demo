@@ -20,7 +20,7 @@ import {
   type VacancyDto,
 } from '@/lib/domain';
 import { displayName, fmtDate, fmtDay, fmtSize } from './ui';
-import { Chip } from './Chip';
+import { Avatar, Chip } from './Chip';
 
 export type FeedbackInput = {
   communication: number;
@@ -74,15 +74,18 @@ export default function Detail({
       )}
 
       <div className="d-head">
-        <div>
-          <h2>{displayName(c, anon)}</h2>
-          <div className="d-sub">{c.position} · {c.city}</div>
-          {(c.consentFuture || c.vacancy) && (
-            <div className="badges">
-              {c.consentFuture && <span className="badge ok">Baza kandydatów</span>}
-              {c.vacancy && <span className="badge info">Ogłoszenie: {cityOf(c.vacancy)}</span>}
-            </div>
-          )}
+        <div className="d-id">
+          <Avatar id={c.id} name={c.name} anon={anon} large />
+          <div>
+            <h2>{displayName(c, anon)}</h2>
+            <div className="d-sub">{c.position} · {c.city}</div>
+            {(c.consentFuture || c.vacancy) && (
+              <div className="badges">
+                {c.consentFuture && <span className="badge ok">Baza kandydatów</span>}
+                {c.vacancy && <span className="badge info">Ogłoszenie: {cityOf(c.vacancy)}</span>}
+              </div>
+            )}
+          </div>
         </div>
         <Chip status={c.status} />
       </div>
@@ -117,6 +120,7 @@ export default function Detail({
         </div>
       )}
 
+      <div className="d-grid">
       <section className="sec">
         <h3>Status zgłoszenia</h3>
         <ol className="steps">
@@ -364,7 +368,7 @@ export default function Detail({
         </section>
       )}
 
-      <section className="sec">
+      <section className="sec sec-cv">
         <h3>Dokument CV</h3>
         {anon ? (
           <p className="hint">W trybie anonimowym podgląd dokumentu jest ukryty, ponieważ CV zawiera dane osobowe.</p>
@@ -472,6 +476,7 @@ export default function Detail({
           </div>
         </section>
       )}
+      </div>
     </>
   );
 }
