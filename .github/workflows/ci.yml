@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t seka-recruitment-demo:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name app -p 3000:3000 seka-recruitment-demo:ci
+          for i in $(seq 1 30); do curl -fs localhost:3000/api/health && break; sleep 2; done
+          curl -fs localhost:3000/api/health | grep '"ok":true'

@@ -1,6 +1,6 @@
 import { addEvent, audit, getDb } from '@/lib/db';
 import { badRequest, forbidden, getSession, json, notFound } from '@/lib/auth';
-import { deleteCandidate, getCandidate, getRow } from '@/lib/candidates';
+import { deleteCandidate, getCandidate, getRow, listVacancies, vacancyExists } from '@/lib/candidates';
 import { isCity, isPosition, isStatus, statusLabel } from '@/lib/domain';
 
 export const runtime = 'nodejs';
@@ -67,6 +67,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
     set.push('interview_at = ?');
     args.push(v);
     events.push(v === null ? 'Usunięto termin rozmowy' : `Ustalono termin rozmowy: ${String(v).replace('T', ' ')}`);
+  }
+  if ('vacancyId' in body) {
+    const v = body.vacancyId;
+    if (v !== null && (typeof v !== 'string' || !vacancyExists(v))) return badRequest('Nie znaleziono ogłoszenia.');
+    if (v !== row.vacancy_id) {
+      set.push('vacancy_id = ?');
+      args.push(v);
+      const label = v ? listVacancies({ ...session, city: null }).find((x) => x.id === v) : null;
+      events.push(label ? `Przypisano do ogłoszenia: ${label.position} (${label.city})` : 'Odpięto od ogłoszenia');
+    }
   }
   if (body.confirmReview === true && row.needs_review) {
     set.push('needs_review = 0');

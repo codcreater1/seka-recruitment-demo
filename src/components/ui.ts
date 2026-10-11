@@ -42,3 +42,16 @@ export function useMedia(query: string) {
   }, [query]);
   return matches;
 }
+
+/** Anonymous mode: a short code instead of the candidate's name. */
+export const alias = (id: string) => `Kandydat ${id.replace(/[^a-z0-9]/gi, '').slice(-4).toUpperCase()}`;
+export const displayName = (c: { id: string; name: string }, anon: boolean) => (anon ? alias(c.id) : c.name);
+
+/** Monday of the week containing the given date (local time), at 00:00. */
+export function weekStart(d: Date) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+}
+export const dayKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

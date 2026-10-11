@@ -57,11 +57,13 @@ function snippet(raw: string, tokens: string[]): string {
   return (from > 0 ? '… ' : '') + base.slice(from, to).replace(/\s+/g, ' ').trim() + (to < base.length ? ' …' : '');
 }
 
-export function searchCandidates(s: Session, q: string): { id: string; snippet: string }[] {
+export function searchCandidates(s: Session, q: string, anon = false): { id: string; snippet: string }[] {
   const tokens = norm(q).split(/[^a-z0-9]+/).filter((t) => t.length >= 2).slice(0, 6);
   if (!tokens.length) return [];
   const db = getDb();
-  const match = tokens.map((t) => `"${t}"*`).join(' ');
+  const terms = tokens.map((t) => `"${t}"*`).join(' ');
+  // anonymous mode: the candidate's name must not be searchable
+  const match = anon ? `{position body} : (${terms})` : terms;
   let ids: string[];
   try {
     ids = (db.prepare('SELECT candidate_id FROM cv_fts WHERE cv_fts MATCH ? LIMIT 100').all(match) as { candidate_id: string }[]).map((r) => r.candidate_id);
@@ -71,9 +73,15 @@ export function searchCandidates(s: Session, q: string): { id: string; snippet: 
   if (!ids.length) return [];
   const marks = ids.map(() => '?').join(',');
   const rows = db
-    .prepare(`SELECT id, city, raw_text FROM candidates WHERE id IN (${marks})`)
-    .all(...ids) as { id: string; city: string; raw_text: string }[];
+    .prepare(`SELECT id, name, city, raw_text FROM candidates WHERE id IN (${marks})`)
+    .all(...ids) as { id: string; name: string; city: string; raw_text: string }[];
+  // anonymous mode: the CV text contains the name, so searching for a name must not reveal who is who
+  const isNameSearch = (name: string) => {
+    const parts = norm(name).split(/[^a-z0-9]+/).filter(Boolean);
+    return tokens.some((t) => parts.some((p) => p.startsWith(t)));
+  };
   return rows
     .filter((r) => !s.city || r.city === s.city)
+    .filter((r) => !anon || !isNameSearch(r.name))
     .map((r) => ({ id: r.id, snippet: snippet(r.raw_text, tokens) }));
 }

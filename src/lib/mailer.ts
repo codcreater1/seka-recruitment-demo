@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 
 export type DeliveryResult = { status: 'sent' | 'simulated' | 'failed'; error: string };
+export type MailAttachment = { filename: string; content: string; contentType: string };
 
 let transport: Transporter | null = null;
 
@@ -20,7 +21,7 @@ function getTransport() {
   return transport;
 }
 
-export async function deliver(msg: { to: string; subject: string; text: string }): Promise<DeliveryResult> {
+export async function deliver(msg: { to: string; subject: string; text: string; attachments?: MailAttachment[] }): Promise<DeliveryResult> {
   if (!smtpConfigured()) return { status: 'simulated', error: '' };
   if (!msg.to || !msg.to.includes('@')) return { status: 'failed', error: 'Brak poprawnego adresu odbiorcy.' };
   try {
@@ -29,6 +30,7 @@ export async function deliver(msg: { to: string; subject: string; text: string }
       to: msg.to,
       subject: msg.subject,
       text: msg.text,
+      attachments: msg.attachments,
     });
     return { status: 'sent', error: '' };
   } catch (e) {

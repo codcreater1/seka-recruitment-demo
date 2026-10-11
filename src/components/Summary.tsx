@@ -3,13 +3,15 @@
 import { useState } from 'react';
 import { STATUSES, type StatsDto } from '@/lib/domain';
 import { STATUS_VAR } from './Chip';
-import { fmtInterview } from './ui';
+import { displayName, fmtInterview } from './ui';
 
-export type QuickFilter = 'review' | 'duplicates' | 'stale' | 'retention' | null;
+export type QuickFilter = 'review' | 'duplicates' | 'stale' | 'retention' | 'pool' | null;
 
 type Props = {
   stats: StatsDto | null;
   canEdit: boolean;
+  anon: boolean;
+  onVacancies: () => void;
   onOpenCandidate: (id: string) => void;
   onCity: (city: string) => void;
   onQuick: (q: Exclude<QuickFilter, null>) => void;
@@ -21,7 +23,7 @@ const weekLabel = (iso: string) => {
   return `${d}.${m}`;
 };
 
-export default function Summary({ stats, canEdit, onOpenCandidate, onCity, onQuick, onBulk }: Props) {
+export default function Summary({ stats, canEdit, anon, onVacancies, onOpenCandidate, onCity, onQuick, onBulk }: Props) {
   const [confirm, setConfirm] = useState<'delete-expired' | null>(null);
   if (!stats) return <div className="loading">Wczytywanie podsumowania…</div>;
 
@@ -35,6 +37,12 @@ export default function Summary({ stats, canEdit, onOpenCandidate, onCity, onQui
         <div className="kpi"><div className="v">{stats.total}</div><div className="l">Wszystkie zgłoszenia</div></div>
         <div className="kpi"><div className="v">{stats.newLast7d}</div><div className="l">Nowe w ostatnich 7 dniach</div></div>
         <div className="kpi"><div className="v">{inProgress}</div><div className="l">W trakcie rekrutacji</div></div>
+        <button type="button" className="kpi kpi-btn" onClick={onVacancies}>
+          <div className="v">{stats.openVacancies}</div><div className="l">Otwarte ogłoszenia</div>
+        </button>
+        <button type="button" className="kpi kpi-btn" onClick={() => onQuick('pool')}>
+          <div className="v">{stats.pool}</div><div className="l">W bazie kandydatów</div>
+        </button>
         <div className="kpi">
           <div className="v">{stats.avgDaysToFirstAction === null ? '—' : `${String(stats.avgDaysToFirstAction).replace('.', ',')} dnia`}</div>
           <div className="l">Średni czas do pierwszej decyzji</div>
@@ -85,7 +93,7 @@ export default function Summary({ stats, canEdit, onOpenCandidate, onCity, onQui
               {stats.upcomingInterviews.map((i) => (
                 <button key={i.id} type="button" onClick={() => onOpenCandidate(i.id)}>
                   <span className="when">{fmtInterview(i.interviewAt)}</span>
-                  <span className="who">{i.name}</span>
+                  <span className="who">{displayName(i, anon)}</span>
                   <span className="what">{i.position} · {i.city}</span>
                 </button>
               ))}
@@ -109,6 +117,10 @@ export default function Summary({ stats, canEdit, onOpenCandidate, onCity, onQui
             <div className={`attn-row${a.stale ? '' : ' zero'}`}>
               <span><span className="num">{a.stale}</span>Czekają bez decyzji ponad 7 dni</span>
               {a.stale > 0 && <button className="btn small" type="button" onClick={() => onQuick('stale')}>Pokaż</button>}
+            </div>
+            <div className={`attn-row${a.emptyVacancies ? '' : ' zero'}`}>
+              <span><span className="num">{a.emptyVacancies}</span>Otwarte ogłoszenia bez kandydatów</span>
+              {a.emptyVacancies > 0 && <button className="btn small" type="button" onClick={onVacancies}>Pokaż</button>}
             </div>
             <div className={`attn-row${a.unsentRejections ? '' : ' zero'}`}>
               <span><span className="num">{a.unsentRejections}</span>Odrzucone bez podziękowania</span>

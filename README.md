@@ -13,11 +13,17 @@ Branch managers get access to the candidates of their own city only.
 
 | Area | Behaviour |
 |---|---|
-| Views | List with profile, Kanban board (drag a card to change status), summary dashboard |
+| Views | List with profile, Kanban board (drag a card to change status), interview calendar, vacancies, summary dashboard |
 | Applications | City tabs, status filters, quick filters, sorting, CSV export |
 | Search | Name, position, e-mail and the **text of the CVs** (SQLite FTS5, diacritics-insensitive) |
 | Profile | Contact data, source e-mail, embedded CV (PDF), facts read from the CV, notes, history, rating, interview date |
 | Status pipeline | Nowa, W weryfikacji, Rozmowa, Oferta, Zatrudniony/a, Odrzucona |
+| Vacancies (Ogłoszenia) | Open and closed vacancies per city and position, applications linked automatically at intake, candidate counts per stage |
+| Talent pool (Baza kandydatów) | Candidates whose CV consents to future recruitments; longer retention period (`POOL_RETENTION_MONTHS`) |
+| Interviews | Weekly calendar, `.ics` file for every interview, invitation e-mail with the calendar file attached |
+| Opinions | HR and the branch manager add a structured opinion after an interview (three criteria, recommendation, comment); opinions are never summed or ranked |
+| Anonymous mode | Hides names, e-mails and the CV preview; names are not searchable |
+| Guided demo | "Przewodnik" walks through the features and can reset the demo data |
 | Intake | `POST /api/ingest` (Power Automate), manual PDF or `.eml` upload, bundled sample CVs |
 | PDF reading | Server-side text extraction; name, e-mail, phone, city and position are detected; scans are flagged "Do sprawdzenia" |
 | City logic | From the e-mail subject, otherwise from the CV address; unknown goes to "Do przypisania" |
@@ -41,7 +47,12 @@ The database and uploaded CVs are stored in `./data` (ignored by git). Delete th
 ```bash
 npm run build && npm start     # production build
 npm run typecheck
+npm test                       # API tests (needs a build first)
 ```
+
+`npm test` starts the production server on a free port with throw-away data and checks permissions, intake,
+search, vacancies, interviews, e-mail, GDPR functions and the demo reset. CI (`.github/workflows/ci.yml`) runs
+type check, build, tests and a Docker smoke test on every push.
 
 ## Configuration
 
@@ -50,6 +61,7 @@ npm run typecheck
 | `DEMO_PASSWORD` | empty (no gate) | Password gate (HTTP Basic auth, any user name) for a public demo |
 | `INGEST_API_KEY` | empty (endpoint disabled) | Secret for `POST /api/ingest` |
 | `RETENTION_MONTHS` | `6` | Age after which a profile is flagged as past retention |
+| `POOL_RETENTION_MONTHS` | `24` | Same for candidates with consent for future recruitments |
 | `SEED_DEMO_DATA` | `true` | Load the fictional candidates when the database is empty |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | empty | Real outgoing e-mail. Without `SMTP_HOST` messages are only recorded as "symulacja" |
 | `DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and uploaded files |
@@ -99,9 +111,10 @@ provider) and maps groups or app roles to "HR" and "manager of city X".
 |---|---|
 | `src/app` | Next.js pages and API routes |
 | `src/components` | React UI (list, board, summary, profile, dialogs) |
-| `src/lib` | Database, domain constants, PDF parsing and CV facts, intake, search, mailer, auth |
+| `src/lib` | Database, domain constants, PDF parsing and CV facts, intake, search, calendar files, mailer, auth |
 | `seed/` | Generated sample CVs (PDF), sample e-mails (`.eml`) and `seed.json` |
 | `scripts/generate_seed.py` | Regenerates the sample CVs (needs `reportlab`, `pypdfium2`) |
+| `tests/` | API tests (`node:test`) |
 | `prototype/` | First single-file prototype (browser storage only) |
 | `Dockerfile`, `docker-compose.yml` | Container build for Coolify or local use |
 
@@ -111,4 +124,7 @@ provider) and maps groups or app roles to "HR" and "manager of city X".
 - [ ] Optional LLM extraction of CV fields (rule-based parsing is used now)
 - [ ] OCR for scanned CVs
 - [ ] Outlook `.msg` import (`.eml` works)
-- [ ] Tests in CI
+- [ ] Several attachments per application (cover letter, certificates)
+- [ ] Merge duplicate profiles
+- [ ] Notifications to HR and managers (e-mail or Teams webhook)
+- [ ] Editable e-mail templates

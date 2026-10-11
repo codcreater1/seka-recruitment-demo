@@ -206,3 +206,71 @@ export function AuditModal({ onClose }: { onClose: () => void }) {
     </Overlay>
   );
 }
+
+export type GuideStep = { title: string; text: string; cta: string; run: () => void };
+
+export function GuideModal({
+  steps, canEdit, onClose, onReset,
+}: {
+  steps: GuideStep[];
+  canEdit: boolean;
+  onClose: () => void;
+  onReset: () => Promise<void>;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Overlay onClose={onClose} wide>
+      <h2>Przewodnik po demo</h2>
+      <p className="lead">Kolejne kroki pokazują najważniejsze funkcje. Każdy przycisk przenosi do odpowiedniego miejsca.</p>
+      <ol className="guide">
+        {steps.map((st, i) => (
+          <li key={st.title}>
+            <div>
+              <strong>{i + 1}. {st.title}</strong>
+              <span>{st.text}</span>
+            </div>
+            <button
+              className="btn small"
+              type="button"
+              onClick={() => {
+                onClose();
+                st.run();
+              }}
+            >
+              {st.cta}
+            </button>
+          </li>
+        ))}
+      </ol>
+      {canEdit && (
+        <div className="guide-reset">
+          {!confirm ? (
+            <button className="btn small" type="button" onClick={() => setConfirm(true)}>Przywróć dane demonstracyjne…</button>
+          ) : (
+            <>
+              <span className="hint">Wszystkie zmiany i dodane zgłoszenia zostaną usunięte. Kontynuować?</span>
+              <button
+                className="btn small danger"
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  await onReset();
+                  setBusy(false);
+                  onClose();
+                }}
+              >
+                Tak, przywróć
+              </button>
+              <button className="btn small" type="button" onClick={() => setConfirm(false)}>Anuluj</button>
+            </>
+          )}
+        </div>
+      )}
+      <div className="modal-actions">
+        <button className="btn primary" type="button" onClick={onClose}>Zamknij</button>
+      </div>
+    </Overlay>
+  );
+}

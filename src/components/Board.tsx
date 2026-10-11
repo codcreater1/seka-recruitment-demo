@@ -3,16 +3,17 @@
 import { useState } from 'react';
 import { STATUSES, type CandidateListItem, type StatusId } from '@/lib/domain';
 import { STATUS_VAR } from './Chip';
-import { fmtInterview, rel } from './ui';
+import { displayName, fmtInterview, rel } from './ui';
 
 type Props = {
   items: CandidateListItem[];
   canEdit: boolean;
+  anon: boolean;
   onOpen: (id: string) => void;
   onMove: (id: string, status: StatusId) => void;
 };
 
-export default function Board({ items, canEdit, onOpen, onMove }: Props) {
+export default function Board({ items, canEdit, anon, onOpen, onMove }: Props) {
   const [over, setOver] = useState<StatusId | null>(null);
 
   return (
@@ -56,7 +57,7 @@ export default function Board({ items, canEdit, onOpen, onMove }: Props) {
                   }}
                   onClick={() => onOpen(c.id)}
                 >
-                  <span className="c-name">{c.name}</span>
+                  <span className="c-name">{displayName(c, anon)}</span>
                   <span className="c-meta">{c.position}</span>
                   <span className="c-meta">{c.city} · {rel(c.receivedAt)}</span>
                   <span className="c-foot">

@@ -111,6 +111,9 @@ export type CandidateListItem = {
   duplicateOf: string | null;
   retentionDue: boolean;
   rejectionSent: boolean;
+  /** The CV contains consent for future recruitments: the candidate is part of the talent pool. */
+  consentFuture: boolean;
+  vacancyId: string | null;
 };
 
 export type CandidateDetail = CandidateListItem & {
@@ -128,6 +131,8 @@ export type CandidateDetail = CandidateListItem & {
   events: EventDto[];
   emails: EmailDto[];
   profile: CvProfile;
+  vacancy: VacancyDto | null;
+  feedback: FeedbackDto[];
 };
 
 export type EmailDto = {
@@ -140,6 +145,7 @@ export type EmailDto = {
   status: 'simulated' | 'sent' | 'failed';
   actor: string;
   error: string;
+  attachment: string;
 };
 
 export type CvProfile = {
@@ -157,11 +163,51 @@ export type StatsDto = {
   byCity: { city: string; total: number; byStatus: Record<string, number> }[];
   perWeek: { weekStart: string; count: number }[];
   upcomingInterviews: { id: string; name: string; position: string; city: string; interviewAt: string }[];
+  openVacancies: number;
+  pool: number;
   attention: {
     needsReview: number;
     duplicates: number;
     stale: number;
     unsentRejections: number;
     retentionDue: number;
+    emptyVacancies: number;
   };
+};
+
+export type VacancyDto = {
+  id: string;
+  position: string;
+  city: string;
+  status: 'open' | 'closed';
+  openedAt: string;
+  closedAt: string | null;
+  daysOpen: number;
+  total: number;
+  counts: Record<string, number>;
+};
+
+export const RECOMMENDATIONS = [
+  { id: 'tak', label: 'Polecam' },
+  { id: 'warunkowo', label: 'Warunkowo' },
+  { id: 'nie', label: 'Nie polecam' },
+] as const;
+export type Recommendation = (typeof RECOMMENDATIONS)[number]['id'];
+export const isRecommendation = (v: unknown): v is Recommendation => RECOMMENDATIONS.some((r) => r.id === v);
+
+export const FEEDBACK_CRITERIA = [
+  { id: 'communication', label: 'Komunikacja' },
+  { id: 'knowledge', label: 'Wiedza zawodowa' },
+  { id: 'fit', label: 'Dopasowanie do zespołu' },
+] as const;
+
+export type FeedbackDto = {
+  id: number;
+  author: string;
+  at: string;
+  communication: number;
+  knowledge: number;
+  fit: number;
+  recommendation: Recommendation;
+  comment: string;
 };

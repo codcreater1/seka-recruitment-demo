@@ -12,17 +12,20 @@ import {
   type Session,
   type StatsDto,
   type StatusId,
+  type VacancyDto,
 } from '@/lib/domain';
-import { api, fmtInterview, rel, useMedia } from './ui';
-import Detail from './Detail';
+import { api, displayName, fmtInterview, rel, useMedia } from './ui';
+import Detail, { type FeedbackInput } from './Detail';
 import Board from './Board';
+import Calendar from './Calendar';
+import Vacancies from './Vacancies';
 import Summary, { type QuickFilter } from './Summary';
 import { Chip, STATUS_VAR } from './Chip';
-import { AuditModal, IssuesModal, NewModal } from './Modals';
+import { AuditModal, GuideModal, IssuesModal, NewModal, type GuideStep } from './Modals';
 
 type RoleOption = { id: string; label: string };
-type ModalKind = 'new' | 'issues' | 'audit' | null;
-type View = 'list' | 'board' | 'summary';
+type ModalKind = 'new' | 'issues' | 'audit' | 'guide' | null;
+type View = 'list' | 'board' | 'calendar' | 'vacancies' | 'summary';
 
 const WEEK = 7 * 864e5;
 const QUICK_LABEL: Record<Exclude<QuickFilter, null>, string> = {
@@ -30,12 +33,22 @@ const QUICK_LABEL: Record<Exclude<QuickFilter, null>, string> = {
   duplicates: 'Możliwe duplikaty',
   stale: 'Czekają ponad 7 dni',
   retention: 'Po terminie przechowywania',
+  pool: 'Baza kandydatów',
 };
+const VIEW_LABEL: Record<View, string> = {
+  list: 'Lista',
+  board: 'Tablica',
+  calendar: 'Kalendarz',
+  vacancies: 'Ogłoszenia',
+  summary: 'Podsumowanie',
+};
+const ANON_KEY = 'panel-rekrutacji-anon';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const [items, setItems] = useState<CandidateListItem[]>([]);
+  const [vacancies, setVacancies] = useState<VacancyDto[] | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [view, setView] = useState<View>('list');
@@ -45,8 +58,10 @@ export default function App() {
   const [city, setCity] = useState('all');
   const [status, setStatus] = useState<'all' | StatusId>('all');
   const [quick, setQuick] = useState<QuickFilter>(null);
+  const [vacancyFilter, setVacancyFilter] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<'new' | 'old' | 'name'>('new');
+  const [anon, setAnon] = useState(false);
   const [hits, setHits] = useState<Record<string, string>>({});
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulkConfirm, setBulkConfirm] = useState(false);
@@ -72,6 +87,11 @@ export default function App() {
     setStats(data.stats);
   }, []);
 
+  const loadVacancies = useCallback(async () => {
+    const data = await api<{ vacancies: VacancyDto[] }>('/api/vacancies');
+    setVacancies(data.vacancies);
+  }, []);
+
   const loadSession = useCallback(async () => {
     const data = await api<{ session: Session; roles: RoleOption[] }>('/api/session');
     setSession(data.session);
@@ -80,17 +100,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    try {
+      setAnon(localStorage.getItem(ANON_KEY) === '1');
+    } catch {
+      /* storage unavailable */
+    }
     loadSession()
       .then((s) => {
         if (s.city) setCity(s.city);
-        return loadList();
+        return Promise.all([loadList(), loadVacancies()]);
       })
       .catch((e: Error) => setError(e.message));
-  }, [loadSession, loadList]);
+  }, [loadSession, loadList, loadVacancies]);
+
+  const toggleAnon = (on: boolean) => {
+    setAnon(on);
+    try {
+      localStorage.setItem(ANON_KEY, on ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  };
 
   useEffect(() => {
     if (view === 'summary') loadStats().catch((e: Error) => say(e.message));
-  }, [view, loadStats, say]);
+    if (view === 'vacancies') loadVacancies().catch((e: Error) => say(e.message));
+  }, [view, loadStats, loadVacancies, say]);
 
   // open profile
   useEffect(() => {
@@ -121,7 +156,7 @@ export default function App() {
     }
     let alive = true;
     const t = setTimeout(() => {
-      api<{ results: { id: string; snippet: string }[] }>(`/api/search?q=${encodeURIComponent(term)}`)
+      api<{ results: { id: string; snippet: string }[] }>(`/api/search?q=${encodeURIComponent(term)}${anon ? '&anon=1' : ''}`)
         .then((d) => alive && setHits(Object.fromEntries(d.results.map((r) => [r.id, r.snippet]))))
         .catch(() => alive && setHits({}));
     }, 250);
@@ -129,7 +164,7 @@ export default function App() {
       alive = false;
       clearTimeout(t);
     };
-  }, [q]);
+  }, [q, anon]);
 
   const matches = useCallback(
     (c: CandidateListItem, o: { city?: string; status?: string } = {}) => {
@@ -137,15 +172,20 @@ export default function App() {
       const statusV = o.status ?? status;
       if (cityV !== 'all' && c.city !== cityV) return false;
       if (statusV !== 'all' && c.status !== statusV) return false;
+      if (vacancyFilter && c.vacancyId !== vacancyFilter) return false;
       if (quick === 'review' && !c.needsReview) return false;
       if (quick === 'duplicates' && !c.duplicateOf) return false;
       if (quick === 'stale' && !(c.status === 'new' && Date.now() - Date.parse(c.receivedAt) > WEEK)) return false;
       if (quick === 'retention' && !c.retentionDue) return false;
+      if (quick === 'pool' && !c.consentFuture) return false;
       const needle = norm(q.trim());
-      if (needle && !norm([c.name, c.position, c.email, c.city].join(' ')).includes(needle) && !hits[c.id]) return false;
+      if (needle) {
+        const fields = anon ? [c.position, c.city] : [c.name, c.position, c.email, c.city];
+        if (!norm(fields.join(' ')).includes(needle) && !hits[c.id]) return false;
+      }
       return true;
     },
-    [city, status, quick, q, hits],
+    [city, status, quick, vacancyFilter, q, hits, anon],
   );
 
   const sorter = useCallback(
@@ -153,11 +193,11 @@ export default function App() {
       const surname = (n: string) => norm(n.split(' ').slice(-1)[0]);
       return [...list].sort((a, b) => {
         if (sort === 'old') return a.receivedAt.localeCompare(b.receivedAt);
-        if (sort === 'name') return surname(a.name).localeCompare(surname(b.name), 'pl');
+        if (sort === 'name' && !anon) return surname(a.name).localeCompare(surname(b.name), 'pl');
         return b.receivedAt.localeCompare(a.receivedAt);
       });
     },
-    [sort],
+    [sort, anon],
   );
 
   const visible = useMemo(() => sorter(items.filter((c) => matches(c))), [items, matches, sorter]);
@@ -210,42 +250,44 @@ export default function App() {
     if (!ok) setItems(before);
   };
 
-  const addNote = async (text: string) => {
-    if (!selId) return false;
+  const postDetail = async (path: string, body: unknown) => {
+    if (!selId) return null;
     try {
-      const data = await api<{ candidate: CandidateDetail }>(`/api/candidates/${selId}/notes`, {
+      const data = await api<{ candidate: CandidateDetail; delivery?: string }>(`/api/candidates/${selId}/${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify(body),
       });
       applyDetail(data.candidate);
-      say(canEdit ? 'Dodano notatkę' : 'Dodano komentarz');
-      return true;
+      return data;
     } catch (e) {
       say((e as Error).message);
-      return false;
+      return null;
     }
   };
 
+  const addNote = async (text: string) => {
+    const ok = await postDetail('notes', { text });
+    if (ok) say(canEdit ? 'Dodano notatkę' : 'Dodano komentarz');
+    return !!ok;
+  };
+
+  const addFeedback = async (f: FeedbackInput) => {
+    const ok = await postDetail('feedback', f);
+    if (ok) say('Dodano opinię z rozmowy');
+    return !!ok;
+  };
+
   const sendEmail = async (template: EmailTemplate) => {
-    if (!selId) return;
-    try {
-      const data = await api<{ candidate: CandidateDetail; delivery: string }>(`/api/candidates/${selId}/emails`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ template }),
-      });
-      applyDetail(data.candidate);
-      say(
-        data.delivery === 'sent'
-          ? 'Wiadomość została wysłana'
-          : data.delivery === 'simulated'
-            ? 'Wiadomość zapisana (symulacja: SMTP nie jest skonfigurowany)'
-            : 'Nie udało się wysłać wiadomości',
-      );
-    } catch (e) {
-      say((e as Error).message);
-    }
+    const data = await postDetail('emails', { template });
+    if (!data) return;
+    say(
+      data.delivery === 'sent'
+        ? 'Wiadomość została wysłana'
+        : data.delivery === 'simulated'
+          ? 'Wiadomość zapisana (symulacja: SMTP nie jest skonfigurowany)'
+          : 'Nie udało się wysłać wiadomości',
+    );
   };
 
   const remove = async () => {
@@ -261,6 +303,11 @@ export default function App() {
     }
   };
 
+  const reloadAll = async () => {
+    await Promise.all([loadList(), loadVacancies()]);
+    if (view === 'summary') await loadStats();
+  };
+
   const runBulk = async (action: 'reject-and-thank' | 'thank-rejected' | 'delete-expired', ids?: string[]) => {
     try {
       const res = await api<{ done: number }>('/api/bulk', {
@@ -270,12 +317,59 @@ export default function App() {
       });
       setPicked(new Set());
       setBulkConfirm(false);
-      await loadList();
-      if (view === 'summary') await loadStats();
+      await reloadAll();
       if (selId) {
         api<{ candidate: CandidateDetail }>(`/api/candidates/${selId}`).then((d) => setDetail(d.candidate)).catch(() => setSelId(null));
       }
       say(`Gotowe: ${res.done} ${res.done === 1 ? 'zgłoszenie' : 'zgłoszeń'}`);
+    } catch (e) {
+      say((e as Error).message);
+    }
+  };
+
+  const createVacancy = async (position: string, cityName: string) => {
+    try {
+      await api('/api/vacancies', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ position, city: cityName }),
+      });
+      await loadVacancies();
+      say('Dodano ogłoszenie');
+      return true;
+    } catch (e) {
+      say((e as Error).message);
+      return false;
+    }
+  };
+
+  const toggleVacancy = async (id: string, next: 'open' | 'closed') => {
+    try {
+      await api(`/api/vacancies/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      });
+      await loadVacancies();
+      say(next === 'closed' ? 'Ogłoszenie zamknięte' : 'Ogłoszenie otwarte ponownie');
+    } catch (e) {
+      say((e as Error).message);
+    }
+  };
+
+  const resetDemo = async () => {
+    try {
+      await api('/api/demo/reset', { method: 'POST' });
+      setSelId(null);
+      setDetail(null);
+      setPicked(new Set());
+      setCity(session?.city ?? 'all');
+      setStatus('all');
+      setQuick(null);
+      setVacancyFilter(null);
+      setQ('');
+      await reloadAll();
+      say('Przywrócono dane demonstracyjne');
     } catch (e) {
       say((e as Error).message);
     }
@@ -286,9 +380,10 @@ export default function App() {
     setCity('all');
     setStatus('all');
     setQuick(null);
+    setVacancyFilter(null);
     setQ('');
     setView('list');
-    await loadList();
+    await reloadAll();
     setSelId(id);
     say(needsReview ? 'Utworzono profil. Część danych wymaga sprawdzenia.' : 'Utworzono profil kandydata');
   };
@@ -304,12 +399,12 @@ export default function App() {
       setCity(data.session.city ?? 'all');
       setStatus('all');
       setQuick(null);
+      setVacancyFilter(null);
       setQ('');
       setSelId(null);
       setDetail(null);
       setPicked(new Set());
-      await loadList();
-      if (view === 'summary') await loadStats();
+      await reloadAll();
     } catch (e) {
       say((e as Error).message);
     }
@@ -319,7 +414,13 @@ export default function App() {
     setCity(session?.city ?? 'all');
     setStatus('all');
     setQuick(null);
+    setVacancyFilter(null);
     setQ('');
+  };
+
+  const go = (v: View) => {
+    setView(v);
+    if (v !== 'list') setSelId(null);
   };
 
   const togglePick = (id: string) =>
@@ -334,6 +435,18 @@ export default function App() {
   const total = items.length;
   const countFor = (o: { city?: string; status?: string }) => items.filter((c) => matches(c, o)).length;
   const pickedRejectable = [...picked].filter((id) => items.find((c) => c.id === id && c.status !== 'rejected'));
+  const vacancyLabel = vacancyFilter ? vacancies?.find((v) => v.id === vacancyFilter) : null;
+
+  const guideSteps: GuideStep[] = [
+    { title: 'Podsumowanie', text: 'Liczby, rozkład według miast, najbliższe rozmowy i lista spraw wymagających uwagi.', cta: 'Pokaż', run: () => go('summary') },
+    { title: 'Tablica', text: 'Przeciągnij kartę kandydata do innej kolumny, aby zmienić status.', cta: 'Pokaż', run: () => go('board') },
+    { title: 'Kalendarz rozmów', text: 'Tygodniowy widok rozmów kwalifikacyjnych. Zaproszenie ma załączony plik .ics.', cta: 'Pokaż', run: () => go('calendar') },
+    { title: 'Ogłoszenia i baza kandydatów', text: 'Zgłoszenia przypisane do ogłoszeń. Kandydaci ze zgodą na przyszłe rekrutacje trafiają do bazy.', cta: 'Pokaż', run: () => go('vacancies') },
+    { title: 'Szukanie w treści CV', text: 'Wpisz „chromatografia”: znajdziesz kandydatów po umiejętności zapisanej w CV.', cta: 'Wypróbuj', run: () => { go('list'); setQ('chromatografia'); } },
+    { title: 'Zgłoszenie z e-maila (.eml)', text: 'Wczytaj przykładową wiadomość: system tworzy profil i zapisuje potwierdzenie.', cta: 'Otwórz', run: () => setModal('new') },
+    { title: 'Widok kierownika oddziału', text: 'Kierownik widzi tylko swoje miasto i może dodać opinię po rozmowie.', cta: 'Przełącz', run: () => { void changeRole('mgr:Kraków'); } },
+    { title: 'Tryb anonimowy', text: 'Ukrywa imiona, e-maile i podgląd CV, żeby oceniać bez uprzedzeń.', cta: 'Włącz', run: () => { toggleAnon(true); go('list'); } },
+  ];
 
   const detailEl =
     detail && session ? (
@@ -341,10 +454,13 @@ export default function App() {
         key={detail.id}
         c={detail}
         session={session}
+        anon={anon}
+        vacancies={vacancies ?? []}
         onBack={() => setSelId(null)}
-        onClose={view === 'board' ? () => setSelId(null) : undefined}
+        onClose={view !== 'list' ? () => setSelId(null) : undefined}
         onPatch={patch}
         onNote={addNote}
+        onFeedback={addFeedback}
         onSendEmail={sendEmail}
         onDelete={remove}
         onOpen={(id) => setSelId(id)}
@@ -352,6 +468,9 @@ export default function App() {
     ) : selId ? (
       <div className="loading">Wczytywanie profilu…</div>
     ) : null;
+
+  const drawerOpen = (view === 'board' || view === 'calendar') && selId !== null;
+  const showFilters = view === 'list' || view === 'board' || view === 'calendar';
 
   return (
     <div className={`app${view === 'list' && selId !== null ? ' show-detail' : ''}`}>
@@ -372,6 +491,11 @@ export default function App() {
               ))}
             </select>
           </label>
+          <label className="anon-toggle" htmlFor="anon">
+            <input id="anon" type="checkbox" checked={anon} onChange={(e) => toggleAnon(e.target.checked)} />
+            Tryb anonimowy
+          </label>
+          <button className="btn" type="button" onClick={() => setModal('guide')}>Przewodnik</button>
           {canEdit && <button className="btn" type="button" onClick={() => setModal('audit')}>Dziennik zdarzeń</button>}
           <button className="btn" type="button" onClick={() => setModal('issues')}>Do omówienia</button>
           {canEdit && <button className="btn primary" type="button" onClick={() => setModal('new')}>Nowe zgłoszenie</button>}
@@ -380,26 +504,32 @@ export default function App() {
 
       {session && !canEdit && (
         <div className="notice">
-          Widok kierownika oddziału: widzisz tylko zgłoszenia z miasta {session.city}. Możesz przeglądać profile i
-          dodawać komentarze. Zakres uprawnień jest do ustalenia.
+          Widok kierownika oddziału: widzisz tylko zgłoszenia z miasta {session.city}. Możesz przeglądać profile,
+          dodawać komentarze i opinie po rozmowach. Zakres uprawnień jest do ustalenia.
+        </div>
+      )}
+      {anon && (
+        <div className="notice">
+          Tryb anonimowy jest włączony: imiona, e-maile i podgląd CV są ukryte. To widok pomocniczy, dokument CV
+          nadal zawiera dane osobowe.
         </div>
       )}
       {error && <div className="notice">Nie udało się wczytać danych: {error}</div>}
 
       <div className="viewbar">
         <div className="seg" role="group" aria-label="Widok danych">
-          <button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')}>Lista</button>
-          <button type="button" aria-pressed={view === 'board'} onClick={() => { setView('board'); setSelId(null); }}>Tablica</button>
-          <button type="button" aria-pressed={view === 'summary'} onClick={() => { setView('summary'); setSelId(null); }}>Podsumowanie</button>
+          {(Object.keys(VIEW_LABEL) as View[]).map((v) => (
+            <button key={v} type="button" aria-pressed={view === v} onClick={() => go(v)}>{VIEW_LABEL[v]}</button>
+          ))}
         </div>
-        {canEdit && (
+        {canEdit && !anon && (
           <div className="viewbar-actions">
             <a className="btn link-btn" href="/api/export">Eksport CSV</a>
           </div>
         )}
       </div>
 
-      {view !== 'summary' && (
+      {showFilters && (
         <div className="toolbar">
           {session?.city ? (
             <div className="branch-label">
@@ -420,7 +550,7 @@ export default function App() {
             <input
               id="q"
               type="search"
-              placeholder="Szukaj: nazwisko, stanowisko, e-mail lub treść CV"
+              placeholder={anon ? 'Szukaj: stanowisko, miasto lub treść CV' : 'Szukaj: nazwisko, stanowisko, e-mail lub treść CV'}
               aria-label="Szukaj zgłoszeń"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -428,17 +558,31 @@ export default function App() {
             <select id="sort" aria-label="Sortowanie" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
               <option value="new">Najnowsze</option>
               <option value="old">Najstarsze</option>
-              <option value="name">Nazwisko A–Z</option>
+              <option value="name" disabled={anon}>Nazwisko A–Z</option>
             </select>
           </div>
-          {quick && (
-            <div className="quick">
-              <span className="hint">Filtr:</span>
+          <div className="quick">
+            <span className="hint">Filtry:</span>
+            <button
+              className="qchip"
+              type="button"
+              aria-pressed={quick === 'pool'}
+              title="Kandydaci, którzy wyrazili zgodę na udział w przyszłych rekrutacjach"
+              onClick={() => setQuick(quick === 'pool' ? null : 'pool')}
+            >
+              Baza kandydatów
+            </button>
+            {quick && quick !== 'pool' && (
               <button className="qchip" type="button" aria-pressed="true" onClick={() => setQuick(null)}>
                 {QUICK_LABEL[quick]} ✕
               </button>
-            </div>
-          )}
+            )}
+            {vacancyFilter && (
+              <button className="qchip" type="button" aria-pressed="true" onClick={() => setVacancyFilter(null)}>
+                Ogłoszenie: {vacancyLabel ? `${vacancyLabel.position} (${vacancyLabel.city})` : '…'} ✕
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -512,7 +656,7 @@ export default function App() {
                     <input
                       className="pick"
                       type="checkbox"
-                      aria-label={`Zaznacz: ${c.name}`}
+                      aria-label={`Zaznacz: ${displayName(c, anon)}`}
                       checked={picked.has(c.id)}
                       onChange={() => togglePick(c.id)}
                     />
@@ -526,16 +670,17 @@ export default function App() {
                       window.scrollTo(0, 0);
                     }}
                   >
-                    <span className="row-name">{c.name}</span>
+                    <span className="row-name">{displayName(c, anon)}</span>
                     <Chip status={c.status} />
                     <span className="row-meta">{c.position} · {c.city}</span>
                     <span className="row-date">{rel(c.receivedAt)}</span>
-                    {hits[c.id] && <span className="row-snippet">{hits[c.id]}</span>}
-                    {(c.needsReview || c.duplicateOf || c.retentionDue || (c.status === 'interview' && c.interviewAt)) && (
+                    {hits[c.id] && !anon && <span className="row-snippet">{hits[c.id]}</span>}
+                    {(c.needsReview || c.duplicateOf || c.retentionDue || c.consentFuture || (c.status === 'interview' && c.interviewAt)) && (
                       <span className="row-badges">
                         {c.needsReview && <span className="badge">Do sprawdzenia</span>}
                         {c.duplicateOf && <span className="badge">Możliwy duplikat</span>}
                         {c.retentionDue && <span className="badge">Minął okres przechowywania</span>}
+                        {c.consentFuture && <span className="badge ok">Baza kandydatów</span>}
                         {c.status === 'interview' && c.interviewAt && (
                           <span className="badge info">Rozmowa: {fmtInterview(c.interviewAt)}</span>
                         )}
@@ -553,23 +698,32 @@ export default function App() {
         </main>
       )}
 
-      {view === 'board' && (
-        <>
-          <Board items={boardItems} canEdit={canEdit} onOpen={setSelId} onMove={moveCandidate} />
-          {selId && (
-            <div className="drawer-overlay" onMouseDown={(e) => e.target === e.currentTarget && setSelId(null)}>
-              <aside className="drawer" aria-label="Profil kandydata">
-                {detailEl}
-              </aside>
-            </div>
-          )}
-        </>
+      {view === 'board' && <Board items={boardItems} canEdit={canEdit} anon={anon} onOpen={setSelId} onMove={moveCandidate} />}
+      {view === 'calendar' && <Calendar items={boardItems} anon={anon} onOpen={setSelId} />}
+
+      {view === 'vacancies' && (
+        <Vacancies
+          vacancies={vacancies}
+          canEdit={canEdit}
+          onCreate={createVacancy}
+          onToggle={toggleVacancy}
+          onShow={(id) => {
+            setVacancyFilter(id);
+            setStatus('all');
+            setQuick(null);
+            setCity(session?.city ?? 'all');
+            setView('list');
+            setSelId(null);
+          }}
+        />
       )}
 
       {view === 'summary' && (
         <Summary
           stats={stats}
           canEdit={canEdit}
+          anon={anon}
+          onVacancies={() => go('vacancies')}
           onOpenCandidate={(id) => {
             setView('list');
             setSelId(id);
@@ -578,11 +732,13 @@ export default function App() {
             setCity(session?.city ? session.city : c);
             setStatus('all');
             setQuick(null);
+            setVacancyFilter(null);
             setView('list');
           }}
           onQuick={(f) => {
             setQuick(f);
             setStatus('all');
+            setVacancyFilter(null);
             setCity(session?.city ?? 'all');
             setView('list');
           }}
@@ -590,14 +746,23 @@ export default function App() {
         />
       )}
 
+      {drawerOpen && (
+        <div className="drawer-overlay" onMouseDown={(e) => e.target === e.currentTarget && setSelId(null)}>
+          <aside className="drawer" aria-label="Profil kandydata">
+            {detailEl}
+          </aside>
+        </div>
+      )}
+
       <footer className="foot">
         <span>Dane są fikcyjne. Dostęp i uprawnienia są w demo symulowane wyborem widoku.</span>
-        <span>Wersja 0.3</span>
+        <span>Wersja 0.4</span>
       </footer>
 
       {modal === 'new' && <NewModal onClose={() => setModal(null)} onCreated={onCreated} />}
       {modal === 'issues' && <IssuesModal onClose={() => setModal(null)} />}
       {modal === 'audit' && <AuditModal onClose={() => setModal(null)} />}
+      {modal === 'guide' && <GuideModal steps={guideSteps} canEdit={canEdit} onClose={() => setModal(null)} onReset={resetDemo} />}
       <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite">{toast}</div>
     </div>
   );

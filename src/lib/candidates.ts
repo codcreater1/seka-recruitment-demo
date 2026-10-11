@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { simpleParser } from 'mailparser';
-import { addEvent, audit, filePath, getDb, newId, nowIso, FILES_DIR, RETENTION_MONTHS } from './db';
+import { addEvent, audit, filePath, getDb, newId, nowIso, FILES_DIR, POOL_RETENTION_MONTHS, RETENTION_MONTHS } from './db';
 import {
   EMAIL_TEMPLATES,
   UNASSIGNED_CITY,
@@ -10,13 +10,17 @@ import {
   type CandidateListItem,
   type EmailDto,
   type EmailTemplate,
+  type FeedbackDto,
+  type Recommendation,
   type Session,
   type StatsDto,
   type StatusId,
+  type VacancyDto,
 } from './domain';
 import { detectCity, detectPosition, extractPdfText, parseCv, parseSender, type ParsedCv } from './cv-parse';
 import { analyzeCv } from './analyze';
-import { deliver } from './mailer';
+import { deliver, type MailAttachment } from './mailer';
+import { buildIcs } from './ics';
 import { indexCandidate, removeFromIndex } from './search';
 
 export type Row = {
@@ -24,20 +28,22 @@ export type Row = {
   received_at: string; channel: string; from_addr: string; subject: string; city_basis: string; rodo: 0 | 1 | 2;
   file_id: string | null; file_name: string | null; file_size: number | null; raw_text: string;
   rating: number | null; interview_at: string | null; rejection_sent: number; needs_review: number; duplicate_of: string | null;
+  vacancy_id: string | null;
 };
 
-function retention(receivedAt: string, status: StatusId) {
-  const due = new Date(receivedAt);
-  due.setMonth(due.getMonth() + RETENTION_MONTHS);
-  return { retentionDate: due.toISOString(), retentionDue: status !== 'hired' && due.getTime() < Date.now() };
+/** Profiles with consent for future recruitments may be kept longer than ordinary applications. */
+function retention(r: Pick<Row, 'received_at' | 'status' | 'rodo'>) {
+  const due = new Date(r.received_at);
+  due.setMonth(due.getMonth() + (r.rodo === 2 ? POOL_RETENTION_MONTHS : RETENTION_MONTHS));
+  return { retentionDate: due.toISOString(), retentionDue: r.status !== 'hired' && due.getTime() < Date.now() };
 }
 
 function toItem(r: Row): CandidateListItem {
   return {
     id: r.id, name: r.name, email: r.email, city: r.city, position: r.position, status: r.status,
     receivedAt: r.received_at, rating: r.rating, interviewAt: r.interview_at, needsReview: !!r.needs_review,
-    duplicateOf: r.duplicate_of, retentionDue: retention(r.received_at, r.status).retentionDue,
-    rejectionSent: !!r.rejection_sent,
+    duplicateOf: r.duplicate_of, retentionDue: retention(r).retentionDue,
+    rejectionSent: !!r.rejection_sent, consentFuture: r.rodo === 2, vacancyId: r.vacancy_id,
   };
 }
 
@@ -75,15 +81,19 @@ export async function getCandidate(s: Session, id: string): Promise<CandidateDet
   const notes = db.prepare('SELECT id, author, text, created_at AS createdAt FROM notes WHERE candidate_id = ? ORDER BY id').all(id) as CandidateDetail['notes'];
   const events = db.prepare('SELECT id, at, actor, text FROM events WHERE candidate_id = ? ORDER BY at, id').all(id) as CandidateDetail['events'];
   const emails = db
-    .prepare('SELECT id, at, template, to_addr AS "to", subject, body, status, actor, error FROM emails WHERE candidate_id = ? ORDER BY at, id')
+    .prepare('SELECT id, at, template, to_addr AS "to", subject, body, status, actor, error, attachment FROM emails WHERE candidate_id = ? ORDER BY at, id')
     .all(id) as EmailDto[];
-  const ret = retention(row.received_at, row.status);
+  const feedback = db
+    .prepare('SELECT id, author, at, communication, knowledge, fit, recommendation, comment FROM feedback WHERE candidate_id = ? ORDER BY at, id')
+    .all(id) as FeedbackDto[];
+  const vacancy = row.vacancy_id ? (listVacancies({ ...s, city: null }).find((v) => v.id === row.vacancy_id) ?? null) : null;
+  const ret = retention(row);
   return {
     ...toItem(row),
     phone: row.phone, channel: row.channel, from: row.from_addr, subject: row.subject, cityBasis: row.city_basis,
     rodo: row.rodo, file: row.file_id ? { name: row.file_name || 'CV.pdf', size: row.file_size || 0 } : null,
     rawText: row.raw_text, retentionDate: ret.retentionDate, notes, events, emails,
-    profile: analyzeCv(row.raw_text),
+    profile: analyzeCv(row.raw_text), vacancy, feedback,
   };
 }
 
@@ -91,10 +101,14 @@ export async function getCandidate(s: Session, id: string): Promise<CandidateDet
 export async function sendTemplateEmail(row: Row, template: EmailTemplate, actor: string) {
   const t = EMAIL_TEMPLATES[template];
   const body = t.body({ position: row.position, interviewAt: row.interview_at });
-  const res = await deliver({ to: row.email, subject: t.subject, text: body });
+  const attachments: MailAttachment[] = [];
+  if (template === 'invite' && row.interview_at) {
+    attachments.push({ filename: 'rozmowa.ics', content: interviewIcs(row) as string, contentType: 'text/calendar; charset=utf-8; method=PUBLISH' });
+  }
+  const res = await deliver({ to: row.email, subject: t.subject, text: body, attachments });
   getDb()
-    .prepare('INSERT INTO emails (candidate_id, at, template, to_addr, subject, body, status, actor, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(row.id, nowIso(), template, row.email, t.subject, body, res.status, actor, res.error);
+    .prepare('INSERT INTO emails (candidate_id, at, template, to_addr, subject, body, status, actor, error, attachment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(row.id, nowIso(), template, row.email, t.subject, body, res.status, actor, res.error, attachments.map((a) => a.filename).join(', '));
   const how = res.status === 'sent' ? 'wysłano' : res.status === 'simulated' ? 'symulacja' : `błąd wysyłki: ${res.error}`;
   addEvent(row.id, actor, `${t.label} (${how})`);
   if (template === 'rejection' && res.status !== 'failed') {
@@ -180,6 +194,13 @@ export async function ingestApplication(input: IngestInput): Promise<{ id: strin
     if (dup) ev('system', 'Wykryto możliwy duplikat: ten adres e-mail ma już profil w systemie');
     audit(input.actor, 'ingest', `${input.channel}: ${name} (${city})`);
     indexCandidate(id, name, position, rawText);
+    const open = db
+      .prepare("SELECT id FROM vacancies WHERE city = ? AND position = ? AND status = 'open'")
+      .all(city, position) as { id: string }[];
+    if (open.length === 1) {
+      db.prepare('UPDATE candidates SET vacancy_id = ? WHERE id = ?').run(open[0].id, id);
+      ev('system', `Przypisano do ogłoszenia: ${position} (${city})`);
+    }
   });
   run();
 
@@ -249,7 +270,7 @@ export async function bulkAction(s: Session, action: 'reject-and-thank' | 'thank
   } else {
     const all = db.prepare('SELECT * FROM candidates').all() as Row[];
     for (const row of all) {
-      if (retention(row.received_at, row.status).retentionDue && deleteCandidate(s, row.id)) done++;
+      if (retention(row).retentionDue && deleteCandidate(s, row.id)) done++;
     }
     audit(s.name, 'bulk-delete-expired', `Usunięto profile po terminie przechowywania: ${done}`);
   }
@@ -290,6 +311,15 @@ export function getStats(s: Session): StatsDto {
     });
   }
 
+  const emptyVacancies = (db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM vacancies v WHERE v.status = 'open' ${s.city ? 'AND v.city = ?' : ''}
+       AND NOT EXISTS (SELECT 1 FROM candidates c WHERE c.vacancy_id = v.id)`,
+    )
+    .get(...args) as { n: number }).n;
+  const openVacancies = (db
+    .prepare(`SELECT COUNT(*) AS n FROM vacancies WHERE status = 'open' ${s.city ? 'AND city = ?' : ''}`)
+    .get(...args) as { n: number }).n;
   const nowLocal = new Date().toISOString().slice(0, 16);
   const upcomingInterviews = rows
     .filter((r) => r.interview_at && r.interview_at >= nowLocal && r.status !== 'rejected' && r.status !== 'hired')
@@ -316,12 +346,15 @@ export function getStats(s: Session): StatsDto {
     byCity: [...cityMap.values()].sort((a, b) => b.total - a.total),
     perWeek,
     upcomingInterviews,
+    openVacancies,
+    pool: rows.filter((r) => r.rodo === 2).length,
     attention: {
       needsReview: rows.filter((r) => r.needs_review).length,
       duplicates: rows.filter((r) => r.duplicate_of).length,
       stale: rows.filter((r) => r.status === 'new' && now - Date.parse(r.received_at) > weekMs).length,
       unsentRejections: rows.filter((r) => r.status === 'rejected' && !r.rejection_sent).length,
-      retentionDue: rows.filter((r) => retention(r.received_at, r.status).retentionDue).length,
+      retentionDue: rows.filter((r) => retention(r).retentionDue).length,
+      emptyVacancies: emptyVacancies,
     },
   };
 }
@@ -344,4 +377,81 @@ export function exportCsv(s: Session): string {
       .join(';'),
   );
   return '﻿' + [head.map(csvCell).join(';'), ...lines].join('\r\n') + '\r\n';
+}
+
+
+/* ---------- interviews (calendar file) ---------- */
+
+export function interviewIcs(row: Row): string | null {
+  if (!row.interview_at) return null;
+  return buildIcs({
+    uid: row.id,
+    summary: `Rozmowa kwalifikacyjna: ${row.name}`,
+    description: `Stanowisko: ${row.position}\nMiasto: ${row.city}`,
+    startLocal: row.interview_at,
+    minutes: 60,
+  });
+}
+
+/* ---------- vacancies ---------- */
+
+type VacancyRow = { id: string; position: string; city: string; status: 'open' | 'closed'; opened_at: string; closed_at: string | null };
+
+function toVacancy(v: VacancyRow, counts: Record<string, number>): VacancyDto {
+  const end = v.closed_at ? Date.parse(v.closed_at) : Date.now();
+  return {
+    id: v.id, position: v.position, city: v.city, status: v.status, openedAt: v.opened_at, closedAt: v.closed_at,
+    daysOpen: Math.max(0, Math.floor((end - Date.parse(v.opened_at)) / 864e5)),
+    total: Object.values(counts).reduce((a, b) => a + b, 0), counts,
+  };
+}
+
+export function listVacancies(s: Session): VacancyDto[] {
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT * FROM vacancies ${s.city ? 'WHERE city = ?' : ''} ORDER BY (status = 'open') DESC, opened_at DESC`)
+    .all(...(s.city ? [s.city] : [])) as VacancyRow[];
+  const grouped = db
+    .prepare('SELECT vacancy_id AS id, status, COUNT(*) AS n FROM candidates WHERE vacancy_id IS NOT NULL GROUP BY vacancy_id, status')
+    .all() as { id: string; status: string; n: number }[];
+  const byVacancy = new Map<string, Record<string, number>>();
+  for (const g of grouped) byVacancy.set(g.id, { ...(byVacancy.get(g.id) || {}), [g.status]: g.n });
+  return rows.map((v) => toVacancy(v, byVacancy.get(v.id) || {}));
+}
+
+export function createVacancy(s: Session, position: string, city: string): { vacancy?: VacancyDto; error?: string } {
+  const db = getDb();
+  const dup = db.prepare("SELECT id FROM vacancies WHERE city = ? AND position = ? AND status = 'open'").get(city, position);
+  if (dup) return { error: 'Takie ogłoszenie jest już otwarte w tym mieście.' };
+  const id = newId();
+  db.prepare('INSERT INTO vacancies (id, position, city, status, opened_at, owner) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, position, city, 'open', nowIso(), s.name);
+  audit(s.name, 'vacancy-open', `${position} (${city})`);
+  return { vacancy: listVacancies({ ...s, city: null }).find((v) => v.id === id) };
+}
+
+export function setVacancyStatus(s: Session, id: string, status: 'open' | 'closed'): VacancyDto | undefined {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM vacancies WHERE id = ?').get(id) as VacancyRow | undefined;
+  if (!row) return undefined;
+  db.prepare('UPDATE vacancies SET status = ?, closed_at = ? WHERE id = ?').run(status, status === 'closed' ? nowIso() : null, id);
+  audit(s.name, status === 'closed' ? 'vacancy-close' : 'vacancy-reopen', `${row.position} (${row.city})`);
+  return listVacancies({ ...s, city: null }).find((v) => v.id === id);
+}
+
+export function vacancyExists(id: string) {
+  return !!getDb().prepare('SELECT 1 FROM vacancies WHERE id = ?').get(id);
+}
+
+/* ---------- opinions after an interview ---------- */
+
+export function addFeedback(
+  s: Session,
+  candidateId: string,
+  f: { communication: number; knowledge: number; fit: number; recommendation: Recommendation; comment: string },
+) {
+  getDb()
+    .prepare('INSERT INTO feedback (candidate_id, author, at, communication, knowledge, fit, recommendation, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(candidateId, s.name, nowIso(), f.communication, f.knowledge, f.fit, f.recommendation, f.comment);
+  addEvent(candidateId, s.name, 'Dodano opinię z rozmowy');
 }

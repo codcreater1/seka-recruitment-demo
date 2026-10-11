@@ -98,3 +98,50 @@
   .cityrow { grid-template-columns: 84px minmax(0, 1fr) 30px; }
   .drawer { padding: 14px; }
 }
+
+/* calendar, vacancies, guide, anonymous mode */
+.calendar { margin-top: 14px; }
+.cal-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.cal-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(7, minmax(150px, 1fr)); gap: 10px; overflow-x: auto; padding-bottom: 8px; align-items: start; }
+.cal-day { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding-bottom: 8px; min-height: 120px; }
+.cal-day.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-day.weekend { opacity: .8; }
+.cal-day h3 { margin: 0; padding: 8px 10px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; gap: 6px; }
+.cal-day h3 .n { font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--muted); }
+.cal-card { display: grid; gap: 2px; width: calc(100% - 16px); margin: 0 8px 8px; padding: 8px 10px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.cal-card:hover { border-color: var(--accent); }
+.cal-time { font-family: var(--font-mono); font-weight: 500; color: var(--accent); }
+.cal-card .c-name { font-weight: 600; overflow-wrap: anywhere; }
+.cal-card .c-meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+
+.vacancies { margin-top: 16px; }
+.vform { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.vform select { padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); max-width: 100%; }
+.vh { margin: 20px 0 10px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.vcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; align-content: start; }
+.vcard.closed { background: var(--surface-2); }
+.vcard h3 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.v-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.v-counts { display: flex; flex-wrap: wrap; gap: 6px; }
+.v-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.kpi-btn { text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.kpi-btn:hover { border-color: var(--accent); }
+
+.fb-form { margin-top: 12px; display: grid; gap: 10px; justify-items: start; }
+.fb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; width: 100%; }
+.fb-grid label { display: grid; gap: 2px; }
+.fb-grid select, .fb-form textarea { padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); width: 100%; }
+.fb-form textarea { min-height: 70px; resize: vertical; }
+
+.guide { margin: 14px 0 0; display: grid; gap: 0; }
+.guide li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+.guide li:first-child { border-top: 0; }
+.guide li div { display: grid; gap: 2px; min-width: 0; flex: 1 1 260px; }
+.guide li span { color: var(--muted); font-size: 13px; }
+.guide-reset { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+
+.anon-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.anon-toggle input { accent-color: var(--accent); }
+.seg { max-width: 100%; overflow-x: auto; }
+.seg button { white-space: nowrap; }
