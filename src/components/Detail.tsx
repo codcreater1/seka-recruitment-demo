@@ -191,7 +191,7 @@ export default function Detail({
                   <p className="hint">Szablon odpowiedzi do kandydata</p>
                   <pre>{REJECTION_TEMPLATE(c.position)}</pre>
                   {c.rejectionSent ? (
-                    <p className="hint" style={{ marginTop: 8 }}>Podziękowanie zostało już wysłane (zobacz Korespondencja).</p>
+                    <p className="hint" style={{ marginTop: '0.5rem' }}>Podziękowanie zostało już wysłane (zobacz Korespondencja).</p>
                   ) : (
                     edit && (
                       <div className="status-actions">
@@ -233,7 +233,7 @@ export default function Detail({
                   />
                 </label>
               </div>
-              <div className="inline-row" style={{ marginTop: 10 }}>
+              <div className="inline-row" style={{ marginTop: '0.625rem' }}>
                 {c.interviewAt && (
                   <a className="btn small link-btn" href={`/api/candidates/${c.id}/ics`}>Pobierz do kalendarza (.ics)</a>
                 )}
@@ -249,7 +249,7 @@ export default function Detail({
                   </button>
                 )}
               </div>
-              <p className="hint" style={{ marginTop: 10 }}>
+              <p className="hint" style={{ marginTop: '0.625rem' }}>
                 Ocena jest wpisywana przez osobę. System nie ocenia ani nie szereguje kandydatów automatycznie.
               </p>
             </section>
@@ -335,7 +335,7 @@ export default function Detail({
                 {p.skills.length > 0 && (
                   <div className="chips">{p.skills.map((s) => <span className="skill" key={s}>{s}</span>)}</div>
                 )}
-                <p className="hint" style={{ marginTop: 10 }}>Informacje odczytane automatycznie z dokumentu, mogą zawierać błędy.</p>
+                <p className="hint" style={{ marginTop: '0.625rem' }}>Informacje odczytane automatycznie z dokumentu, mogą zawierać błędy.</p>
               </section>
             )}
             </div>
@@ -419,7 +419,7 @@ export default function Detail({
                 />
                 <button className="btn small primary" type="submit">Dodaj opinię</button>
               </form>
-              <p className="hint" style={{ marginTop: 10 }}>
+              <p className="hint" style={{ marginTop: '0.625rem' }}>
                 Opinie są wpisywane przez osoby i nie są sumowane ani używane do automatycznego szeregowania kandydatów.
               </p>
             </section>
@@ -474,7 +474,7 @@ export default function Detail({
                         <span className={`badge ${m.status === 'failed' ? 'bad' : m.status === 'sent' ? 'ok' : 'info'}`}>{MAIL_STATUS[m.status] || m.status}</span>
                         <span className="m-when">{fmtDate(m.at)}</span>
                       </summary>
-                      <div className="hint" style={{ marginTop: 6 }}>
+                      <div className="hint" style={{ marginTop: '0.375rem' }}>
                         Do: {anon ? HIDDEN : m.to} · Temat: {m.subject} · Wysłał(a): {m.actor}
                         {m.attachment ? ` · Załącznik: ${m.attachment}` : ''}
                       </div>

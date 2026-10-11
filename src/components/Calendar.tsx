@@ -95,7 +95,7 @@ export default function Calendar({ items, anon, onOpen }: Props) {
       </div>
 
       {unscheduled.length > 0 && (
-        <p className="hint" style={{ marginTop: 12 }}>
+        <p className="hint" style={{ marginTop: '0.75rem' }}>
           Bez ustalonego terminu (status „Rozmowa”): {unscheduled.map((c) => displayName(c, anon)).join(', ')}.
         </p>
       )}

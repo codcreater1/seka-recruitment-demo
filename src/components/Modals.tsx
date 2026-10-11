@@ -111,7 +111,7 @@ export function NewModal({ onClose, onCreated }: { onClose: () => void; onCreate
           e.target.value = '';
         }}
       />
-      {error && <p className="err" style={{ marginTop: 8 }}>{error}</p>}
+      {error && <p className="err" style={{ marginTop: '0.5rem' }}>{error}</p>}
 
       {samples.length > 0 && (
         <>

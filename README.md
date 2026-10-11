@@ -10,7 +10,8 @@ Branch managers get access to the candidates of their own city only.
   `public/seka-logo.png` belongs to SEKA S.A. and is used here only for this demonstration.
 - Layout: narrow icon rail, one-line filters, list and profile panels that scroll independently (the page itself
   never scrolls), profile in tabs (overview, CV, opinions and notes, correspondence, history). One pane at a time
-  below 1100 px. Light and dark theme (follows the system, can be switched in the user menu).
+  below 1100 px. Light and dark theme (follows the system) and text size S / M / L, both in the user menu. The text
+  size defaults to M on screens with display scaling of 125% or more, and everything is sized in rem.
 - Data: fictional (generated, see `scripts/generate_seed.py`)
 - Authentication: demo role switcher (target: Microsoft Entra ID SSO, see "Authentication")
 

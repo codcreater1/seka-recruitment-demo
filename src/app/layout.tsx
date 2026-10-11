@@ -19,10 +19,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pl" className={jakarta.variable} suppressHydrationWarning>
       <head>
         <script
-          // apply a stored theme choice before the first paint (no flash)
+          // apply the stored theme and text size before the first paint (no flash)
           dangerouslySetInnerHTML={{
             __html:
-              "try{var t=localStorage.getItem('panel-rekrutacji-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}",
+              "try{var d=document.documentElement,t=localStorage.getItem('panel-rekrutacji-theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);var z=localStorage.getItem('panel-rekrutacji-size');if(z!=='s'&&z!=='m'&&z!=='l')z=window.devicePixelRatio>=1.2?'m':'l';d.setAttribute('data-size',z)}catch(e){}",
           }}
         />
       </head>

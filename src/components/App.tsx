@@ -46,7 +46,10 @@ const VIEW_LABEL: Record<View, string> = {
 };
 const ANON_KEY = 'panel-rekrutacji-anon';
 const THEME_KEY = 'panel-rekrutacji-theme';
+const SIZE_KEY = 'panel-rekrutacji-size';
 type Theme = 'auto' | 'light' | 'dark';
+type Size = 's' | 'm' | 'l';
+const SIZE_LABEL: Record<Size, string> = { s: 'Mały', m: 'Średni', l: 'Duży' };
 const THEME_LABEL: Record<Theme, string> = { auto: 'Auto', light: 'Jasny', dark: 'Ciemny' };
 const VIEW_ICON: Record<View, IconName> = { list: 'list', board: 'board', calendar: 'calendar', vacancies: 'briefcase', summary: 'chart' };
 const VIEW_TITLE: Record<View, string> = {
@@ -76,6 +79,7 @@ export default function App() {
   const [sort, setSort] = useState<'new' | 'old' | 'name'>('new');
   const [anon, setAnon] = useState(false);
   const [theme, setTheme] = useState<Theme>('auto');
+  const [size, setSize] = useState<Size>('m');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const detailRef = useRef<HTMLElement>(null);
   const [hits, setHits] = useState<Record<string, string>>({});
@@ -138,6 +142,22 @@ export default function App() {
       /* storage unavailable */
     }
   }, []);
+
+  useEffect(() => {
+    // the size was already applied before the first paint; read it back for the control
+    const a = document.documentElement.getAttribute('data-size');
+    if (a === 's' || a === 'm' || a === 'l') setSize(a);
+  }, []);
+
+  const chooseSize = (z: Size) => {
+    setSize(z);
+    document.documentElement.setAttribute('data-size', z);
+    try {
+      localStorage.setItem(SIZE_KEY, z);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const chooseTheme = (t: Theme) => {
     setTheme(t);
@@ -641,6 +661,16 @@ export default function App() {
                       {(['auto', 'light', 'dark'] as Theme[]).map((t) => (
                         <button key={t} type="button" aria-pressed={theme === t} onClick={() => chooseTheme(t)}>
                           {THEME_LABEL[t]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="side-block">
+                    <span className="side-label">Rozmiar tekstu</span>
+                    <div className="theme-seg" role="group" aria-label="Rozmiar tekstu">
+                      {(['s', 'm', 'l'] as Size[]).map((z) => (
+                        <button key={z} type="button" aria-pressed={size === z} onClick={() => chooseSize(z)}>
+                          {SIZE_LABEL[z]}
                         </button>
                       ))}
                     </div>

@@ -91,7 +91,7 @@ export default function Vacancies({ vacancies, canEdit, onCreate, onToggle, onSh
           <div className="vgrid">{closed.map(card)}</div>
         </>
       )}
-      <p className="hint" style={{ marginTop: 14 }}>
+      <p className="hint" style={{ marginTop: '0.875rem' }}>
         Nowe zgłoszenie jest przypisywane automatycznie, gdy w danym mieście jest dokładnie jedno otwarte ogłoszenie na to stanowisko.
       </p>
     </div>
