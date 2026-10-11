@@ -42,7 +42,7 @@ const VIEW_LABEL: Record<View, string> = {
   board: 'Tablica',
   calendar: 'Kalendarz',
   vacancies: 'Ogłoszenia',
-  summary: 'Podsumowanie',
+  summary: 'Pulpit',
 };
 const ANON_KEY = 'panel-rekrutacji-anon';
 const THEME_KEY = 'panel-rekrutacji-theme';
@@ -54,7 +54,7 @@ const VIEW_TITLE: Record<View, string> = {
   board: 'Tablica statusów',
   calendar: 'Kalendarz rozmów',
   vacancies: 'Ogłoszenia',
-  summary: 'Podsumowanie',
+  summary: 'Pulpit rekrutacji',
 };
 
 export default function App() {
@@ -76,7 +76,7 @@ export default function App() {
   const [sort, setSort] = useState<'new' | 'old' | 'name'>('new');
   const [anon, setAnon] = useState(false);
   const [theme, setTheme] = useState<Theme>('auto');
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const detailRef = useRef<HTMLElement>(null);
   const [hits, setHits] = useState<Record<string, string>>({});
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -84,7 +84,8 @@ export default function App() {
   const [modal, setModal] = useState<ModalKind>(null);
   const [toast, setToast] = useState('');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const narrow = useMedia('(max-width: 899px)');
+  // up to this width the list and the profile are shown one at a time
+  const narrow = useMedia('(max-width: 1100px)');
 
   const say = useCallback((msg: string) => {
     setToast(msg);
@@ -150,6 +151,20 @@ export default function App() {
       /* ignore */
     }
   };
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.usermenu')) setSettingsOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSettingsOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [settingsOpen]);
 
   // a newly opened profile starts at its top
   useEffect(() => {
@@ -481,7 +496,7 @@ export default function App() {
   const vacancyLabel = vacancyFilter ? vacancies?.find((v) => v.id === vacancyFilter) : null;
 
   const guideSteps: GuideStep[] = [
-    { title: 'Podsumowanie', text: 'Liczby, rozkład według miast, najbliższe rozmowy i lista spraw wymagających uwagi.', cta: 'Pokaż', run: () => go('summary') },
+    { title: 'Pulpit', text: 'Liczby, rozkład według miast, najbliższe rozmowy i lista spraw wymagających uwagi.', cta: 'Pokaż', run: () => go('summary') },
     { title: 'Tablica', text: 'Przeciągnij kartę kandydata do innej kolumny, aby zmienić status.', cta: 'Pokaż', run: () => go('board') },
     { title: 'Kalendarz rozmów', text: 'Tygodniowy widok rozmów kwalifikacyjnych. Zaproszenie ma załączony plik .ics.', cta: 'Pokaż', run: () => go('calendar') },
     { title: 'Ogłoszenia i baza kandydatów', text: 'Zgłoszenia przypisane do ogłoszeń. Kandydaci ze zgodą na przyszłe rekrutacje trafiają do bazy.', cta: 'Pokaż', run: () => go('vacancies') },
@@ -515,6 +530,7 @@ export default function App() {
   const drawerOpen = (view === 'board' || view === 'calendar') && selId !== null;
   const showFilters = view === 'list' || view === 'board' || view === 'calendar';
 
+  const countLabel = `${visible.length} z ${total}`;
   const subtitle =
     view === 'summary'
       ? 'Przegląd rekrutacji i spraw wymagających uwagi'
@@ -522,129 +538,136 @@ export default function App() {
         ? 'Ogłoszenia i liczba zgłoszeń w każdym z nich'
         : view === 'calendar'
           ? 'Rozmowy kwalifikacyjne w ujęciu tygodniowym'
-          : `${visible.length} z ${total} zgłoszeń`;
+          : '';
+  const openFromMenu = (m: ModalKind) => {
+    setSettingsOpen(false);
+    setModal(m);
+  };
 
   return (
-    <div className={`shell${view === 'list' && selId !== null ? ' show-detail' : ''}${menuOpen ? ' menu-open' : ''}`}>
+    <div className={`shell${view === 'list' && selId !== null ? ' show-detail' : ''}`}>
       <aside className="side">
-        <div className="side-top">
-          <div className="brand">
-            {/* logo from seka.pl, 107x70 px */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="logo" src="/seka-logo.png" alt="SEKA" width={60} height={39} />
-            <div>
-              <div className="brand-name">Panel rekrutacji</div>
-              <div className="brand-sub">Wersja demonstracyjna</div>
-            </div>
-          </div>
-          <button
-            className="btn small menu-btn"
-            type="button"
-            aria-expanded={menuOpen}
-            aria-controls="side-more"
-            onClick={() => setMenuOpen((o) => !o)}
-          >
-            <Icon name="menu" size={16} />
-            Menu
-          </button>
+        <div className="brand">
+          {/* logo from seka.pl, 107x70 px */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="logo" src="/seka-logo.png" alt="SEKA" width={52} height={34} />
         </div>
-
-        {canEdit && (
-          <button className="btn primary wide" type="button" onClick={() => setModal('new')}>
-            <Icon name="plus" size={16} />
-            Nowe zgłoszenie
-          </button>
-        )}
-
         <nav className="nav" aria-label="Widoki">
           {(Object.keys(VIEW_LABEL) as View[]).map((v) => (
             <button
               key={v}
               className="nav-item"
               type="button"
+              title={VIEW_TITLE[v]}
               aria-current={view === v ? 'page' : undefined}
-              onClick={() => {
-                go(v);
-                setMenuOpen(false);
-              }}
+              onClick={() => go(v)}
             >
-              <Icon name={VIEW_ICON[v]} />
+              <Icon name={VIEW_ICON[v]} size={21} />
               <span>{VIEW_LABEL[v]}</span>
             </button>
           ))}
         </nav>
-
-        <div className="side-more" id="side-more">
-          <div className="side-block">
-            <label className="side-label" htmlFor="role">Zalogowano jako</label>
-            <select id="role" value={session?.id ?? 'hr'} onChange={(e) => changeRole(e.target.value)}>
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>{r.label}</option>
-              ))}
-            </select>
-          </div>
-          <label className="switch" htmlFor="anon">
-            <input id="anon" type="checkbox" checked={anon} onChange={(e) => toggleAnon(e.target.checked)} />
-            <span>Tryb anonimowy</span>
-          </label>
-          <div className="side-block">
-            <span className="side-label">Motyw</span>
-            <div className="theme-seg" role="group" aria-label="Motyw">
-              {(['auto', 'light', 'dark'] as Theme[]).map((t) => (
-                <button key={t} type="button" aria-pressed={theme === t} onClick={() => chooseTheme(t)}>
-                  {THEME_LABEL[t]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="side-links">
-            <button className="side-link" type="button" onClick={() => { setModal('guide'); setMenuOpen(false); }}>
-              <Icon name="book" size={16} />Przewodnik po demo
-            </button>
-            {canEdit && (
-              <button className="side-link" type="button" onClick={() => { setModal('audit'); setMenuOpen(false); }}>
-                <Icon name="history" size={16} />Dziennik zdarzeń
-              </button>
-            )}
-            <button className="side-link" type="button" onClick={() => { setModal('issues'); setMenuOpen(false); }}>
-              <Icon name="help" size={16} />Do omówienia
-            </button>
-            {canEdit && !anon && (
-              <a className="side-link" href="/api/export">
-                <Icon name="download" size={16} />Eksport CSV
-              </a>
-            )}
-          </div>
-          <div className="side-foot">Dane fikcyjne · wersja 0.5</div>
-        </div>
       </aside>
 
       <div className="main">
         <header className="topbar">
-          <div>
-            <h1>{VIEW_TITLE[view]}</h1>
-            <p className="sub">{subtitle}</p>
+          <div className="titles">
+            <p className="eyebrow">Panel rekrutacji · wersja demonstracyjna</p>
+            <h1>
+              {VIEW_TITLE[view]}
+              {showFilters ? <small>{countLabel}</small> : <small>{subtitle}</small>}
+            </h1>
           </div>
-          {showFilters && (
-            <div className="top-tools">
-              <div className="search">
-                <Icon name="search" size={16} />
-                <input
-                  id="q"
-                  type="search"
-                  placeholder={anon ? 'Szukaj: stanowisko, miasto lub treść CV' : 'Szukaj: nazwisko, stanowisko, e-mail lub treść CV'}
-                  aria-label="Szukaj zgłoszeń"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                />
-              </div>
-              <select id="sort" aria-label="Sortowanie" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-                <option value="new">Najnowsze</option>
-                <option value="old">Najstarsze</option>
-                <option value="name" disabled={anon}>Nazwisko A–Z</option>
-              </select>
+          <div className="top-tools">
+            {showFilters && (
+              <>
+                <div className="search">
+                  <Icon name="search" size={16} />
+                  <input
+                    id="q"
+                    type="search"
+                    placeholder={anon ? 'Szukaj: stanowisko, miasto, treść CV' : 'Szukaj: nazwisko, stanowisko, e-mail, treść CV'}
+                    aria-label="Szukaj zgłoszeń"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                  />
+                </div>
+                <select id="sort" aria-label="Sortowanie" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+                  <option value="new">Najnowsze</option>
+                  <option value="old">Najstarsze</option>
+                  <option value="name" disabled={anon}>Nazwisko A–Z</option>
+                </select>
+              </>
+            )}
+            {canEdit && (
+              <button className="btn primary" type="button" onClick={() => setModal('new')}>
+                <Icon name="plus" size={16} />
+                <span className="long">Nowe zgłoszenie</span>
+                <span className="short">Nowe</span>
+              </button>
+            )}
+            <div className="usermenu">
+              <button
+                className="user-chip"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={settingsOpen}
+                onClick={() => setSettingsOpen((o) => !o)}
+              >
+                <span className="avatar sm" aria-hidden="true">{canEdit ? 'HR' : 'KO'}</span>
+                <span className="user-text">
+                  <strong>{session?.name ?? 'Wczytywanie…'}</strong>
+                  <small>Widok i ustawienia</small>
+                </span>
+                <Icon name="chevron" size={16} />
+              </button>
+              {settingsOpen && (
+                <div className="menu-pop" role="menu">
+                  <div className="side-block">
+                    <label className="side-label" htmlFor="role">Zalogowano jako</label>
+                    <select id="role" value={session?.id ?? 'hr'} onChange={(e) => changeRole(e.target.value)}>
+                      {roles.map((r) => (
+                        <option key={r.id} value={r.id}>{r.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <label className="switch" htmlFor="anon">
+                    <input id="anon" type="checkbox" checked={anon} onChange={(e) => toggleAnon(e.target.checked)} />
+                    <span>Tryb anonimowy</span>
+                  </label>
+                  <div className="side-block">
+                    <span className="side-label">Motyw</span>
+                    <div className="theme-seg" role="group" aria-label="Motyw">
+                      {(['auto', 'light', 'dark'] as Theme[]).map((t) => (
+                        <button key={t} type="button" aria-pressed={theme === t} onClick={() => chooseTheme(t)}>
+                          {THEME_LABEL[t]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="side-links">
+                    <button className="side-link" type="button" onClick={() => openFromMenu('guide')}>
+                      <Icon name="book" size={16} />Przewodnik po demo
+                    </button>
+                    {canEdit && (
+                      <button className="side-link" type="button" onClick={() => openFromMenu('audit')}>
+                        <Icon name="history" size={16} />Dziennik zdarzeń
+                      </button>
+                    )}
+                    <button className="side-link" type="button" onClick={() => openFromMenu('issues')}>
+                      <Icon name="help" size={16} />Do omówienia
+                    </button>
+                    {canEdit && !anon && (
+                      <a className="side-link" href="/api/export">
+                        <Icon name="download" size={16} />Eksport CSV
+                      </a>
+                    )}
+                  </div>
+                  <div className="side-foot">Dane fikcyjne · wersja 0.6</div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </header>
 
         {((session && !canEdit) || anon || error) && (
@@ -683,7 +706,6 @@ export default function App() {
               </nav>
             )}
             <div className="quick">
-              <span className="hint">Filtry:</span>
               <button
                 className="qchip"
                 type="button"
@@ -712,58 +734,39 @@ export default function App() {
             <main className="layout">
               <section className="list-pane" aria-label="Lista zgłoszeń">
                 <div className="list-head">
-                  <div className="pills">
-                    <button className="pill" type="button" aria-pressed={status === 'all'} onClick={() => setStatus('all')}>
-                      Wszystkie<span className="n">{countFor({ status: 'all' })}</span>
-                    </button>
+                  <select id="status" aria-label="Status zgłoszenia" value={status} onChange={(e) => setStatus(e.target.value as 'all' | StatusId)}>
+                    <option value="all">Wszystkie statusy ({countFor({ status: 'all' })})</option>
                     {STATUSES.map((s) => (
-                      <button
-                        key={s.id}
-                        className="pill"
-                        type="button"
-                        aria-pressed={status === s.id}
-                        style={{ ['--dot' as string]: `var(${STATUS_VAR[s.id]})` }}
-                        onClick={() => setStatus(s.id)}
-                      >
-                        <i />
-                        {s.label}
-                        <span className="n">{countFor({ status: s.id })}</span>
-                      </button>
+                      <option key={s.id} value={s.id}>{s.label} ({countFor({ status: s.id })})</option>
                     ))}
-                  </div>
-
-                  {canEdit && picked.size > 0 && (
-                    <div className="bulkbar" role="region" aria-label="Operacje zbiorcze">
-                      <span>Zaznaczono: <strong>{picked.size}</strong></span>
-                      {!bulkConfirm ? (
-                        <>
-                          <button className="btn small danger" type="button" disabled={!pickedRejectable.length} onClick={() => setBulkConfirm(true)}>
-                            Odrzuć i wyślij podziękowanie
-                          </button>
-                          <button className="btn small" type="button" onClick={() => setPicked(new Set())}>Wyczyść zaznaczenie</button>
-                        </>
-                      ) : (
-                        <>
-                          <span>Odrzucić {pickedRejectable.length} zgłoszeń i wysłać każdemu podziękowanie?</span>
-                          <button className="btn small danger" type="button" onClick={() => runBulk('reject-and-thank', pickedRejectable)}>Tak, wykonaj</button>
-                          <button className="btn small" type="button" onClick={() => setBulkConfirm(false)}>Anuluj</button>
-                        </>
-                      )}
-                    </div>
+                  </select>
+                  <span className="count">{countLabel}</span>
+                  {canEdit && visible.length > 0 && (
+                    <button className="link count" type="button" onClick={() => setPicked(new Set(visible.map((c) => c.id)))}>
+                      zaznacz widoczne
+                    </button>
                   )}
+                </div>
 
-                  <div className="count">
-                    Wyświetlono {visible.length} z {total}
-                    {canEdit && visible.length > 0 && (
+                {canEdit && picked.size > 0 && (
+                  <div className="bulkbar" role="region" aria-label="Operacje zbiorcze">
+                    <span>Zaznaczono: <strong>{picked.size}</strong></span>
+                    {!bulkConfirm ? (
                       <>
-                        {' · '}
-                        <button className="link" type="button" onClick={() => setPicked(new Set(visible.map((c) => c.id)))}>
-                          zaznacz widoczne
+                        <button className="btn small danger" type="button" disabled={!pickedRejectable.length} onClick={() => setBulkConfirm(true)}>
+                          Odrzuć i wyślij podziękowanie
                         </button>
+                        <button className="btn small" type="button" onClick={() => setPicked(new Set())}>Wyczyść zaznaczenie</button>
+                      </>
+                    ) : (
+                      <>
+                        <span>Odrzucić {pickedRejectable.length} zgłoszeń i wysłać każdemu podziękowanie?</span>
+                        <button className="btn small danger" type="button" onClick={() => runBulk('reject-and-thank', pickedRejectable)}>Tak, wykonaj</button>
+                        <button className="btn small" type="button" onClick={() => setBulkConfirm(false)}>Anuluj</button>
                       </>
                     )}
                   </div>
-                </div>
+                )}
 
                 <ul className="list">
                   {!loaded && <li><div className="loading">Wczytywanie zgłoszeń…</div></li>}
@@ -798,15 +801,14 @@ export default function App() {
                         <Avatar id={c.id} name={c.name} anon={anon} />
                         <span className="row-name">{displayName(c, anon)}</span>
                         <Chip status={c.status} />
-                        <span className="row-meta">{c.position} · {c.city}</span>
+                        <span className="row-meta" title={`${c.position} · ${c.city}`}>{c.position} · {c.city}</span>
                         <span className="row-date">{rel(c.receivedAt)}</span>
                         {hits[c.id] && !anon && <span className="row-snippet">{hits[c.id]}</span>}
-                        {(c.needsReview || c.duplicateOf || c.retentionDue || c.consentFuture || (c.status === 'interview' && c.interviewAt)) && (
+                        {(c.needsReview || c.duplicateOf || c.retentionDue || (c.status === 'interview' && c.interviewAt)) && (
                           <span className="row-badges">
                             {c.needsReview && <span className="badge">Do sprawdzenia</span>}
                             {c.duplicateOf && <span className="badge">Możliwy duplikat</span>}
                             {c.retentionDue && <span className="badge">Minął okres przechowywania</span>}
-                            {c.consentFuture && <span className="badge ok">Baza kandydatów</span>}
                             {c.status === 'interview' && c.interviewAt && (
                               <span className="badge info">Rozmowa: {fmtInterview(c.interviewAt)}</span>
                             )}
