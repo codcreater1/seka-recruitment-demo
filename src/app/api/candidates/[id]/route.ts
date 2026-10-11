@@ -2,6 +2,7 @@ import { addEvent, audit, getDb } from '@/lib/db';
 import { badRequest, forbidden, getSession, json, notFound } from '@/lib/auth';
 import { deleteCandidate, getCandidate, getRow, listVacancies, vacancyExists } from '@/lib/candidates';
 import { isCity, isPosition, isStatus, statusLabel } from '@/lib/domain';
+import { indexCandidate } from '@/lib/search';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -89,6 +90,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (set.length) {
     getDb().prepare(`UPDATE candidates SET ${set.join(', ')} WHERE id = ?`).run(...args, id);
     events.forEach((e) => addEvent(id, session.name, e));
+    if (set.some((x) => x.startsWith('position'))) {
+      const fresh = getRow(session, id);
+      if (fresh) indexCandidate(id, fresh.name, fresh.position, fresh.raw_text);
+    }
   }
   return json({ candidate: await getCandidate(session, id) });
 }

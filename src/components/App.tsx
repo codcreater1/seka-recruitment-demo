@@ -6,6 +6,7 @@ import {
   STATUSES,
   UNASSIGNED_CITY,
   norm,
+  statusLabel,
   type CandidateDetail,
   type CandidateListItem,
   type EmailTemplate,
@@ -246,7 +247,7 @@ export default function App() {
   const moveCandidate = async (id: string, next: StatusId) => {
     const before = items;
     setItems((prev) => prev.map((c) => (c.id === id ? { ...c, status: next } : c)));
-    const ok = await patchById(id, { status: next });
+    const ok = await patchById(id, { status: next }, `Status zmieniony na „${statusLabel(next)}”`);
     if (!ok) setItems(before);
   };
 
@@ -476,10 +477,13 @@ export default function App() {
     <div className={`app${view === 'list' && selId !== null ? ' show-detail' : ''}`}>
       <header className="top">
         <div className="brand">
-          <div className="mark" aria-hidden="true">R</div>
+          {/* logo from seka.pl, 107x70 px */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="logo" src="/seka-logo.png" alt="SEKA" width={60} height={39} />
+          <div className="brand-divider" aria-hidden="true" />
           <div>
             <div className="brand-name">Panel rekrutacji</div>
-            <div className="brand-sub">Wersja demonstracyjna · dane fikcyjne · bez logowania</div>
+            <div className="brand-sub">Wersja demonstracyjna · dane fikcyjne</div>
           </div>
         </div>
         <div className="top-actions">

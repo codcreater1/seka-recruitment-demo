@@ -5,8 +5,8 @@
   "description": "Recruitment management demo (Polish UI, fictional data)",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "build": "next build && node scripts/postbuild.mjs",
+    "start": "node scripts/start.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs"
   },

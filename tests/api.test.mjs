@@ -46,14 +46,22 @@ const byName = async (name) => (await candidates()).find((c) => c.name === name)
 const detail = async (id, cookie) => (await call('/api/candidates/' + id, {}, cookie)).body.candidate;
 
 before(async () => {
-  const nextBin = path.join(root, 'node_modules', 'next', 'dist', 'bin', 'next');
-  assert.ok(fs.existsSync(path.join(root, '.next')), 'run "npm run build" first');
+  assert.ok(fs.existsSync(path.join(root, '.next', 'standalone', 'server.js')), 'run "npm run build" first');
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'recruitment-test-'));
-  server = spawn(process.execPath, [nextBin, 'start', '-p', String(port), '-H', '127.0.0.1'], {
+  server = spawn(process.execPath, [path.join(root, 'scripts', 'start.mjs')], {
     cwd: root,
-    env: { ...process.env, DATA_DIR: dataDir, INGEST_API_KEY: KEY, SMTP_HOST: '', DEMO_PASSWORD: '', SEED_DEMO_DATA: 'true' },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      DATA_DIR: dataDir,
+      INGEST_API_KEY: KEY,
+      SMTP_HOST: '',
+      DEMO_PASSWORD: '',
+      SEED_DEMO_DATA: 'true',
+    },
     stdio: 'ignore',
   });
   for (let i = 0; i < 60; i++) {
@@ -64,8 +72,6 @@ before(async () => {
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  // the CV text of the seeded profiles is indexed in the background
-  await new Promise((r) => setTimeout(r, 3000));
 });
 
 after(() => {

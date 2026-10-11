@@ -1,18 +1,11 @@
 import type { Metadata } from 'next';
-import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import './views.css';
 
-const sans = IBM_Plex_Sans({
+const jakarta = Plus_Jakarta_Sans({
   subsets: ['latin', 'latin-ext'],
-  weight: ['400', '500', '600'],
-  variable: '--font-plex-sans',
-  display: 'swap',
-});
-const mono = IBM_Plex_Mono({
-  subsets: ['latin', 'latin-ext'],
-  weight: ['400', '500'],
-  variable: '--font-plex-mono',
+  variable: '--font-jakarta',
   display: 'swap',
 });
 
@@ -24,7 +17,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pl" className={`${sans.variable} ${mono.variable}`}>
+    <html lang="pl" className={jakarta.variable}>
       <body>{children}</body>
     </html>
   );

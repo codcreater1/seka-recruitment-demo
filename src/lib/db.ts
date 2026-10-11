@@ -249,7 +249,7 @@ export function getDb(): Database.Database {
   if (count === 0 && process.env.SEED_DEMO_DATA !== 'false') seedDemo(db);
   globalThis.__sekaDb = db;
   // fill in CV text for seeded profiles and build the search index (does not block start-up)
-  void import('./search').then((m) => m.backfillIndex()).catch(() => undefined);
+  void import('./search').then((m) => m.ensureIndex()).catch(() => undefined);
   return db;
 }
 
@@ -263,7 +263,12 @@ export function resetDemoData() {
     /* folder missing: nothing to remove */
   }
   seedDemo(db);
-  void import('./search').then((m) => m.backfillIndex()).catch(() => undefined);
+  void import('./search')
+    .then((m) => {
+      m.resetIndexState();
+      return m.ensureIndex();
+    })
+    .catch(() => undefined);
 }
 
 export const newId = () => randomUUID();

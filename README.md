@@ -6,6 +6,8 @@ application, groups applications by branch city and tracks the status of every c
 Branch managers get access to the candidates of their own city only.
 
 - UI language: Polish
+- Look: logo, colours and typeface follow the SEKA website (blue #1b3985, Plus Jakarta Sans). The logo file
+  `public/seka-logo.png` belongs to SEKA S.A. and is used here only for this demonstration.
 - Data: fictional (generated, see `scripts/generate_seed.py`)
 - Authentication: demo role switcher (target: Microsoft Entra ID SSO, see "Authentication")
 
@@ -45,7 +47,7 @@ npm run dev        # http://localhost:3000
 The database and uploaded CVs are stored in `./data` (ignored by git). Delete the folder to reset the demo data.
 
 ```bash
-npm run build && npm start     # production build
+npm run build && npm start     # production server (the same one the Docker image runs)
 npm run typecheck
 npm test                       # API tests (needs a build first)
 ```

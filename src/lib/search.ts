@@ -20,8 +20,21 @@ export function removeFromIndex(id: string) {
 
 type Row = { id: string; name: string; position: string; raw_text: string; file_id: string | null };
 
-/** Fills in missing CV text for seeded profiles and rebuilds the index. Runs once after start. */
-export async function backfillIndex() {
+let indexing: Promise<void> | null = null;
+
+/** Builds the index once per process; every caller waits for the same run. */
+export function ensureIndex(): Promise<void> {
+  if (!indexing) indexing = backfillIndex().catch(() => undefined);
+  return indexing;
+}
+
+/** After the demo data was replaced the index has to be built again. */
+export function resetIndexState() {
+  indexing = null;
+}
+
+/** Fills in missing CV text for seeded profiles and rebuilds the index. */
+async function backfillIndex() {
   const db = getDb();
   const missing = db.prepare("SELECT id, name, position, raw_text, file_id FROM candidates WHERE raw_text = '' AND file_id IS NOT NULL").all() as Row[];
   for (const r of missing) {
