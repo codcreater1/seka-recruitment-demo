@@ -11,11 +11,32 @@ export type ParsedCv = {
   rodo: 0 | 1 | 2;
 };
 
-/** Reads the text layer of a PDF. Scanned documents return an empty string. */
+/** A CV has a handful of pages; anything much longer is not a CV and is not worth reading on the server. */
+const MAX_PDF_PAGES = 30;
+/** Upper bound for reading one file, so a hostile PDF cannot hold the request open. */
+const PDF_TIMEOUT_MS = 20_000;
+
+/**
+ * Reads the text layer of a PDF. Scanned documents, over-long documents and files that take too long
+ * return an empty string (the profile is then flagged for manual review). Broken files throw.
+ */
 export async function extractPdfText(buf: Uint8Array): Promise<string> {
   const pdf = await getDocumentProxy(new Uint8Array(buf));
-  const { text } = await extractText(pdf, { mergePages: true });
-  return (Array.isArray(text) ? text.join('\n') : text).replace(/\u0000/g, '').trim();
+  try {
+    if (pdf.numPages > MAX_PDF_PAGES) return '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), PDF_TIMEOUT_MS);
+    });
+    const read = extractText(pdf, { mergePages: true }).then((r) => r.text);
+    const text = await Promise.race([read, limit]).finally(() => timer && clearTimeout(timer));
+    if (text === null) return '';
+    return (Array.isArray(text) ? text.join('\n') : text).replace(/\u0000/g, '').trim();
+  } finally {
+    // release the parser's memory right away (the typings of the bundled pdf.js do not list destroy)
+    const closable = pdf as unknown as { destroy?: () => Promise<void> };
+    void closable.destroy?.().catch(() => undefined);
+  }
 }
 
 const POSITION_KEYS: string[][] = [

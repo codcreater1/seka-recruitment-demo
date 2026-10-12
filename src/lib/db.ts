@@ -3,13 +3,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EMAIL_TEMPLATES, statusLabel, type StatusId } from './domain';
+import { localDate } from './time';
+
+/** A positive whole number from the environment; a typo in a setting must not break the app. */
+function envMonths(name: string, fallback: number) {
+  const n = Number(process.env[name]);
+  return Number.isInteger(n) && n >= 1 && n <= 240 ? n : fallback;
+}
 
 export const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 export const FILES_DIR = path.join(DATA_DIR, 'files');
 export const SEED_DIR = process.env.SEED_DIR || path.join(process.cwd(), 'seed');
-export const RETENTION_MONTHS = Number(process.env.RETENTION_MONTHS || 6);
+export const RETENTION_MONTHS = envMonths('RETENTION_MONTHS', 6);
 /** Candidates who consented to future recruitments (talent pool) may be kept longer. */
-export const POOL_RETENTION_MONTHS = Number(process.env.POOL_RETENTION_MONTHS || 24);
+export const POOL_RETENTION_MONTHS = envMonths('POOL_RETENTION_MONTHS', 24);
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS candidates (
@@ -181,8 +188,8 @@ function seedDemo(db: Database.Database) {
       if (size) fs.copyFileSync(src, path.join(FILES_DIR, `${c.id}.pdf`));
       let interviewAt: string | null = null;
       if (c.interview) {
-        const d = new Date(now + c.interview.inDays * 864e5);
-        interviewAt = `${d.toISOString().slice(0, 10)}T${c.interview.time}`;
+        // the date as the company's calendar shows it, so "tomorrow" is tomorrow in Poland, not in UTC
+        interviewAt = `${localDate(new Date(now + c.interview.inDays * 864e5))}T${c.interview.time}`;
       }
       insC.run({
         id: c.id, name: c.name, email: c.email, phone: c.phone, city: c.city, position: c.position,

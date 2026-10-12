@@ -1,11 +1,14 @@
 import { timingSafeEqual } from 'node:crypto';
 import { badRequest, json } from '@/lib/auth';
 import { ingestApplication } from '@/lib/candidates';
+import { blockedFor, clientKey, recordFailure } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_BYTES = 10 * 1024 * 1024;
+/** Base64 grows the file by a third, plus the rest of the JSON. */
+const MAX_BODY_BYTES = Math.ceil(MAX_BYTES * 1.4) + 64 * 1024;
 
 function keyMatches(given: string | null, expected: string) {
   if (!given) return false;
@@ -22,7 +25,19 @@ function keyMatches(given: string | null, expected: string) {
 export async function POST(req: Request) {
   const expected = process.env.INGEST_API_KEY;
   if (!expected) return json({ error: 'Przyjmowanie wiadomości jest wyłączone (brak INGEST_API_KEY).' }, 503);
-  if (!keyMatches(req.headers.get('x-api-key'), expected)) return json({ error: 'Nieprawidłowy klucz API.' }, 401);
+
+  const who = clientKey(req.headers);
+  const wait = blockedFor('ingest', who);
+  if (wait > 0) {
+    const res = json({ error: 'Zbyt wiele nieudanych prób. Spróbuj ponownie za chwilę.' }, 429);
+    res.headers.set('Retry-After', String(wait));
+    return res;
+  }
+  if (!keyMatches(req.headers.get('x-api-key'), expected)) {
+    recordFailure('ingest', who);
+    return json({ error: 'Nieprawidłowy klucz API.' }, 401);
+  }
+  if (Number(req.headers.get('content-length') || 0) > MAX_BODY_BYTES) return json({ error: 'Żądanie jest zbyt duże.' }, 413);
 
   const body = (await req.json().catch(() => null)) as {
     from?: string;
@@ -34,13 +49,13 @@ export async function POST(req: Request) {
 
   let buffer: Uint8Array | undefined;
   let fileName: string | undefined;
-  for (const att of body.attachments || []) {
-    if (!att?.contentBase64) continue;
+  for (const att of Array.isArray(body.attachments) ? body.attachments : []) {
+    if (!att || typeof att.contentBase64 !== 'string' || !att.contentBase64) continue;
     const bytes = new Uint8Array(Buffer.from(att.contentBase64, 'base64'));
     if (bytes.byteLength > MAX_BYTES) return badRequest('Załącznik jest większy niż 10 MB.');
     if (String.fromCharCode(...bytes.slice(0, 4)) === '%PDF') {
       buffer = bytes;
-      fileName = att.name || 'CV.pdf';
+      fileName = typeof att.name === 'string' && att.name ? att.name : 'CV.pdf';
       break;
     }
   }
@@ -48,8 +63,8 @@ export async function POST(req: Request) {
     buffer,
     fileName,
     from: body.from,
-    subject: String(body.subject || ''),
-    receivedAt: body.receivedAt,
+    subject: typeof body.subject === 'string' ? body.subject : '',
+    receivedAt: typeof body.receivedAt === 'string' ? body.receivedAt : undefined,
     channel: 'E-mail',
     actor: 'webhook',
     autoAck: true,

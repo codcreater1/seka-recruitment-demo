@@ -51,7 +51,7 @@ export default function Summary({ stats, canEdit, anon, onVacancies, onOpenCandi
 
       <div className="panels">
         <section className="panel">
-          <h3>Zgłoszenia według miast</h3>
+          <h2>Zgłoszenia według miast</h2>
           {stats.byCity.map((c) => (
             <button key={c.city} type="button" className="cityrow" onClick={() => onCity(c.city)} title="Pokaż zgłoszenia z tego miasta">
               <span className="nm">{c.city}</span>
@@ -74,7 +74,7 @@ export default function Summary({ stats, canEdit, anon, onVacancies, onOpenCandi
         </section>
 
         <section className="panel">
-          <h3>Zgłoszenia w tygodniach (od poniedziałku)</h3>
+          <h2>Zgłoszenia w tygodniach (od poniedziałku)</h2>
           <div className="weeks">
             {stats.perWeek.map((w) => (
               <div className="wk" key={w.weekStart}>
@@ -87,7 +87,7 @@ export default function Summary({ stats, canEdit, anon, onVacancies, onOpenCandi
         </section>
 
         <section className="panel">
-          <h3>Najbliższe rozmowy</h3>
+          <h2>Najbliższe rozmowy</h2>
           {stats.upcomingInterviews.length ? (
             <div className="ilist">
               {stats.upcomingInterviews.map((i) => (
@@ -104,7 +104,7 @@ export default function Summary({ stats, canEdit, anon, onVacancies, onOpenCandi
         </section>
 
         <section className="panel">
-          <h3>Wymaga uwagi</h3>
+          <h2>Wymaga uwagi</h2>
           <div className="attn">
             <div className={`attn-row${a.needsReview ? '' : ' zero'}`}>
               <span><span className="num">{a.needsReview}</span>Dane do sprawdzenia</span>

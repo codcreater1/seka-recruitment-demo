@@ -24,10 +24,23 @@ export function rel(iso: string) {
 
 export const fmtSize = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 
+const STATUS_TEXT: Record<number, string> = {
+  401: 'Brak dostępu. Odśwież stronę i podaj hasło.',
+  413: 'Plik jest zbyt duży.',
+  429: 'Zbyt wiele prób. Poczekaj chwilę i spróbuj ponownie.',
+  502: 'Serwer jest chwilowo niedostępny. Spróbuj ponownie za moment.',
+  503: 'Serwer jest chwilowo niedostępny. Spróbuj ponownie za moment.',
+};
+
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch {
+    throw new Error('Brak połączenia z serwerem. Sprawdź połączenie i spróbuj ponownie.');
+  }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error || `Błąd serwera (${res.status})`);
+  if (!res.ok) throw new Error((data as { error?: string }).error || STATUS_TEXT[res.status] || `Błąd serwera (${res.status})`);
   return data as T;
 }
 

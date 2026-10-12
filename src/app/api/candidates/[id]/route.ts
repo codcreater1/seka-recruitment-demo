@@ -3,6 +3,7 @@ import { badRequest, forbidden, getSession, json, notFound } from '@/lib/auth';
 import { deleteCandidate, getCandidate, getRow, listVacancies, vacancyExists } from '@/lib/candidates';
 import { isCity, isPosition, isStatus, statusLabel } from '@/lib/domain';
 import { indexCandidate } from '@/lib/search';
+import { isLocalDateTime } from '@/lib/time';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,8 +64,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   if ('interviewAt' in body) {
     const v = body.interviewAt;
-    const valid = v === null || (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v));
-    if (!valid) return badRequest('Nieprawidłowy termin rozmowy.');
+    if (v !== null && !isLocalDateTime(v)) return badRequest('Nieprawidłowy termin rozmowy.');
     set.push('interview_at = ?');
     args.push(v);
     events.push(v === null ? 'Usunięto termin rozmowy' : `Ustalono termin rozmowy: ${String(v).replace('T', ' ')}`);

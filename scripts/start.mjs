@@ -19,4 +19,8 @@ process.env.PORT ||= '3000';
 // on localhost, so it is set explicitly here.
 process.env.HOSTNAME = process.env.HOST || '0.0.0.0';
 
+if (!process.env.DEMO_PASSWORD) {
+  console.log('Note: DEMO_PASSWORD is not set, so anyone who can reach this address can open the demo.');
+}
+
 await import(pathToFileURL(server).href);

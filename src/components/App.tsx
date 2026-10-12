@@ -44,6 +44,16 @@ const VIEW_LABEL: Record<View, string> = {
   vacancies: 'Ogłoszenia',
   summary: 'Pulpit',
 };
+/** Address of every view (#/lista, #/tablica/<id> ...), so a refresh or a pasted link opens the same screen. */
+const VIEW_SLUG: Record<View, string> = { list: 'lista', board: 'tablica', calendar: 'kalendarz', vacancies: 'ogloszenia', summary: 'pulpit' };
+
+function readAddress(): { view: View; id: string | null } {
+  const parts = window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const view = (Object.keys(VIEW_SLUG) as View[]).find((v) => VIEW_SLUG[v] === parts[0]) ?? 'list';
+  const id = parts[1] && /^[A-Za-z0-9_-]{1,64}$/.test(parts[1]) ? parts[1] : null;
+  return { view, id: view === 'vacancies' || view === 'summary' ? null : id };
+}
+
 const ANON_KEY = 'panel-rekrutacji-anon';
 const THEME_KEY = 'panel-rekrutacji-theme';
 const SIZE_KEY = 'panel-rekrutacji-size';
@@ -81,6 +91,8 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>('auto');
   const [size, setSize] = useState<Size>('m');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [routed, setRouted] = useState(false);
+  const lastView = useRef<View>('list');
   const detailRef = useRef<HTMLElement>(null);
   const [hits, setHits] = useState<Record<string, string>>({});
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -190,6 +202,33 @@ export default function App() {
   useEffect(() => {
     detailRef.current?.scrollTo?.({ top: 0 });
   }, [selId]);
+
+  // address -> screen: on start and when the browser goes back or forward
+  useEffect(() => {
+    const apply = () => {
+      const a = readAddress();
+      lastView.current = a.view;
+      setView(a.view);
+      setSelId(a.id);
+    };
+    apply();
+    setRouted(true);
+    window.addEventListener('popstate', apply);
+    return () => window.removeEventListener('popstate', apply);
+  }, []);
+
+  // screen -> address: a new view is a history entry, picking another profile only updates the address
+  useEffect(() => {
+    if (!routed) return;
+    const want = `#/${VIEW_SLUG[view]}${selId ? `/${selId}` : ''}`;
+    if (window.location.hash !== want) {
+      const url = window.location.pathname + window.location.search + want;
+      if (lastView.current !== view) window.history.pushState(null, '', url);
+      else window.history.replaceState(null, '', url);
+    }
+    lastView.current = view;
+    document.title = `${VIEW_TITLE[view]} · Panel rekrutacji`;
+  }, [routed, view, selId]);
 
   const toggleAnon = (on: boolean) => {
     setAnon(on);
@@ -548,6 +587,13 @@ export default function App() {
     ) : null;
 
   const drawerOpen = (view === 'board' || view === 'calendar') && selId !== null;
+  const overlayOpen = modal !== null || settingsOpen;
+  useEffect(() => {
+    if (!drawerOpen || overlayOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSelId(null);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [drawerOpen, overlayOpen]);
   const showFilters = view === 'list' || view === 'board' || view === 'calendar';
 
   const countLabel = `${visible.length} z ${total}`;
@@ -630,8 +676,9 @@ export default function App() {
               <button
                 className="user-chip"
                 type="button"
-                aria-haspopup="menu"
                 aria-expanded={settingsOpen}
+                aria-controls="user-menu"
+                aria-label={`${session?.name ?? 'Użytkownik'}: widok i ustawienia`}
                 onClick={() => setSettingsOpen((o) => !o)}
               >
                 <span className="avatar sm" aria-hidden="true">{canEdit ? 'HR' : 'KO'}</span>
@@ -642,7 +689,7 @@ export default function App() {
                 <Icon name="chevron" size={16} />
               </button>
               {settingsOpen && (
-                <div className="menu-pop" role="menu">
+                <div className="menu-pop" id="user-menu" role="group" aria-label="Widok i ustawienia">
                   <div className="side-block">
                     <label className="side-label" htmlFor="role">Zalogowano jako</label>
                     <select id="role" value={session?.id ?? 'hr'} onChange={(e) => changeRole(e.target.value)}>
@@ -693,7 +740,7 @@ export default function App() {
                       </a>
                     )}
                   </div>
-                  <div className="side-foot">Dane fikcyjne · wersja 0.6</div>
+                  <div className="side-foot">Dane fikcyjne · wersja {process.env.NEXT_PUBLIC_APP_VERSION}</div>
                 </div>
               )}
             </div>
@@ -719,7 +766,7 @@ export default function App() {
         )}
 
         {showFilters && (
-          <div className="subbar">
+          <section className="subbar" aria-label="Filtry zgłoszeń">
             {session?.city ? (
               <div className="branch-label">
                 Oddział: {session.city}
@@ -756,12 +803,12 @@ export default function App() {
                 </button>
               )}
             </div>
-          </div>
+          </section>
         )}
 
-        <div className={`content${view === 'list' ? ' fill' : ''}`}>
+        <main className={`content${view === 'list' ? ' fill' : ''}`}>
           {view === 'list' && (
-            <main className="layout">
+            <div className="layout">
               <section className="list-pane" aria-label="Lista zgłoszeń">
                 <div className="list-head">
                   <select id="status" aria-label="Status zgłoszenia" value={status} onChange={(e) => setStatus(e.target.value as 'all' | StatusId)}>
@@ -853,7 +900,7 @@ export default function App() {
               <section className="detail-pane" aria-label="Profil kandydata" ref={detailRef}>
                 {detailEl ?? <div className="empty"><p>Wybierz zgłoszenie z listy, aby zobaczyć profil kandydata.</p></div>}
               </section>
-            </main>
+            </div>
           )}
 
           {view === 'board' && <Board items={boardItems} canEdit={canEdit} anon={anon} onOpen={setSelId} onMove={moveCandidate} />}
@@ -903,7 +950,7 @@ export default function App() {
               onBulk={(action) => runBulk(action)}
             />
           )}
-        </div>
+        </main>
       </div>
 
       {drawerOpen && (

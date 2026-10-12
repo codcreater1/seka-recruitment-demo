@@ -22,6 +22,7 @@ import { analyzeCv } from './analyze';
 import { deliver, type MailAttachment } from './mailer';
 import { buildIcs } from './ics';
 import { indexCandidate, removeFromIndex } from './search';
+import { isLocalDateTime, localNow } from './time';
 
 export type Row = {
   id: string; name: string; email: string; phone: string; city: string; position: string; status: StatusId;
@@ -102,9 +103,8 @@ export async function sendTemplateEmail(row: Row, template: EmailTemplate, actor
   const t = EMAIL_TEMPLATES[template];
   const body = t.body({ position: row.position, interviewAt: row.interview_at });
   const attachments: MailAttachment[] = [];
-  if (template === 'invite' && row.interview_at) {
-    attachments.push({ filename: 'rozmowa.ics', content: interviewIcs(row) as string, contentType: 'text/calendar; charset=utf-8; method=PUBLISH' });
-  }
+  const ics = template === 'invite' ? interviewIcs(row) : null;
+  if (ics) attachments.push({ filename: 'rozmowa.ics', content: ics, contentType: 'text/calendar; charset=utf-8; method=PUBLISH' });
   const res = await deliver({ to: row.email, subject: t.subject, text: body, attachments });
   getDb()
     .prepare('INSERT INTO emails (candidate_id, at, template, to_addr, subject, body, status, actor, error, attachment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -116,6 +116,9 @@ export async function sendTemplateEmail(row: Row, template: EmailTemplate, actor
   }
   return res;
 }
+
+/** Text kept per CV (a normal CV has a few thousand characters). */
+const MAX_CV_TEXT = 100_000;
 
 export type IngestInput = {
   buffer?: Uint8Array;
@@ -135,13 +138,20 @@ export type IngestInput = {
  * Creates a candidate profile from an incoming application. Used by the e-mail webhook,
  * the manual upload and the demo simulation, so all three behave the same way.
  */
-export async function ingestApplication(input: IngestInput): Promise<{ id: string; needsReview: boolean }> {
+export async function ingestApplication(rawInput: IngestInput): Promise<{ id: string; needsReview: boolean }> {
+  // a mail header or a file name from outside is never trusted to be short
+  const input: IngestInput = {
+    ...rawInput,
+    from: rawInput.from.slice(0, 300),
+    subject: rawInput.subject.slice(0, 300),
+    fileName: rawInput.fileName?.slice(0, 200),
+  };
   const db = getDb();
   let rawText = '';
   let parsed: ParsedCv | null = null;
   if (input.buffer) {
     try {
-      rawText = await extractPdfText(input.buffer);
+      rawText = (await extractPdfText(input.buffer)).slice(0, MAX_CV_TEXT);
     } catch {
       rawText = '';
     }
@@ -320,7 +330,8 @@ export function getStats(s: Session): StatsDto {
   const openVacancies = (db
     .prepare(`SELECT COUNT(*) AS n FROM vacancies WHERE status = 'open' ${s.city ? 'AND city = ?' : ''}`)
     .get(...args) as { n: number }).n;
-  const nowLocal = new Date().toISOString().slice(0, 16);
+  // interview times are local wall-clock strings, so compare them with the local "now", not with UTC
+  const nowLocal = localNow();
   const upcomingInterviews = rows
     .filter((r) => r.interview_at && r.interview_at >= nowLocal && r.status !== 'rejected' && r.status !== 'hired')
     .sort((a, b) => (a.interview_at as string).localeCompare(b.interview_at as string))
@@ -383,7 +394,7 @@ export function exportCsv(s: Session): string {
 /* ---------- interviews (calendar file) ---------- */
 
 export function interviewIcs(row: Row): string | null {
-  if (!row.interview_at) return null;
+  if (!isLocalDateTime(row.interview_at)) return null;
   return buildIcs({
     uid: row.id,
     summary: `Rozmowa kwalifikacyjna: ${row.name}`,

@@ -1,12 +1,7 @@
 import type { Metadata } from 'next';
-import { Plus_Jakarta_Sans } from 'next/font/google';
+// the typeface is bundled with the app (no request to Google at build time or at run time)
+import '@fontsource-variable/plus-jakarta-sans';
 import './globals.css';
-
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ['latin', 'latin-ext'],
-  variable: '--font-jakarta',
-  display: 'swap',
-});
 
 export const metadata: Metadata = {
   title: 'Panel rekrutacji',
@@ -16,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pl" className={jakarta.variable} suppressHydrationWarning>
+    <html lang="pl" suppressHydrationWarning>
       <head>
         <script
           // apply the stored theme and text size before the first paint (no flash)

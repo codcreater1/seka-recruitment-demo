@@ -76,10 +76,10 @@ export default function Calendar({ items, anon, onOpen }: Props) {
             .sort((a, b) => (a.interviewAt as string).localeCompare(b.interviewAt as string));
           return (
             <section key={k} className={`cal-day${k === todayKey ? ' today' : ''}${i > 4 ? ' weekend' : ''}`}>
-              <h3>
+              <h2>
                 <span>{DAYS[i]}</span>
                 <span className="n">{fmtShort(d)}</span>
-              </h3>
+              </h2>
               {todays.length === 0 && <div className="col-empty">—</div>}
               {todays.map((c) => (
                 <button key={c.id} type="button" className="cal-card" onClick={() => onOpen(c.id)}>

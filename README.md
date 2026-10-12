@@ -71,6 +71,7 @@ type check, build, tests and a Docker smoke test on every push.
 | `SEED_DEMO_DATA` | `true` | Load the fictional candidates when the database is empty |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | empty | Real outgoing e-mail. Without `SMTP_HOST` messages are only recorded as "symulacja" |
 | `DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and uploaded files |
+| `APP_TIMEZONE` | `Europe/Warsaw` | Time zone of the company. Interview times are wall-clock times, so "upcoming" is decided in this zone, whatever the server's own clock says |
 
 ## Deploy on Coolify
 
@@ -82,6 +83,26 @@ type check, build, tests and a Docker smoke test on every push.
 5. Deploy. On first start the database is created and filled with the demo candidates.
 
 To try the image locally: `docker compose up --build`.
+
+### Before the demo
+
+- Open the menu (top right) → "Przewodnik po demo" → "Przywróć dane demonstracyjne". The dates of the sample data are
+  relative to the first start, so a reset right before presenting makes "2 godz. temu" and the interview calendar current.
+- The walkthrough with talking points is in [`docs/demo-script.md`](docs/demo-script.md).
+- Every screen has its own address (`/#/lista`, `/#/tablica`, `/#/kalendarz`, `/#/ogloszenia`, `/#/pulpit`, and
+  `/#/lista/<id>` for a profile), so a refresh or a pasted link opens the same place and the browser's Back button works.
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| Coolify answers 403 on "new resource" | The account has no permission in that project. Ask the instructor to grant it; nothing to change in the app. |
+| Data disappears after every deploy | No volume on `/data`. Add a persistent storage with destination `/data`. |
+| Empty list on a fresh server | `SEED_DEMO_DATA=false` was set, or the database already exists (and is empty). Use "Przywróć dane demonstracyjne". |
+| Browser asks for a password | `DEMO_PASSWORD` is set. Any user name works; ten wrong passwords in a minute block that address for a minute. |
+| `POST /api/ingest` answers 503 | `INGEST_API_KEY` is not set. 401 means a wrong key, 429 too many wrong keys from one address. |
+| Container is "unhealthy" | `GET /api/health` must answer `{"ok":true}`; check the volume is writable by the `node` user (uid 1000). |
+| Dates look off by an hour or two | Set `APP_TIMEZONE` (default `Europe/Warsaw`). |
 
 ## E-mail intake (Power Automate)
 
@@ -104,6 +125,25 @@ Response: `201 { "id": "...", "needsReview": false, "attachmentAccepted": true }
 Mails without a PDF still create a profile (from the sender data) flagged for review.
 A live intake sends the acknowledgement e-mail to the candidate (recorded only, unless SMTP is configured).
 
+## Security notes
+
+What is in place:
+
+- Roles are enforced on the server for every endpoint (a manager cannot read or change another city by guessing ids).
+- Optional password gate (`DEMO_PASSWORD`) and API key for intake (`INGEST_API_KEY`), both compared in constant time,
+  with a limit of ten wrong attempts per minute per address (in memory, one process).
+- Security headers on every response (`nosniff`, frame protection, referrer and permissions policy), the role cookie is
+  `HttpOnly`, `SameSite=Lax` and `Secure` behind an HTTPS proxy.
+- Uploads: type and size are checked (PDF or `.eml`, 10 MB), a request that declares too large a body is refused before it is read, PDF reading
+  is limited to 30 pages and 20 seconds, text kept per CV is capped, and CSV export neutralises spreadsheet formulas.
+- The health endpoint reveals nothing about the data. CV downloads are written to the audit log.
+
+What is deliberately not there (demo scope): real sign-in (the role switcher is a stand-in, see below), per-user audit
+identity, malware scanning of attachments, encryption of the database at rest (use disk or volume encryption), and a
+full Content-Security-Policy for scripts. `npm audit` lists advisories (up to "high") for the PostCSS copy that Next.js 15
+depends on. They concern processing untrusted CSS; the app runs PostCSS only at build time, on its own stylesheet. The fix
+is a major upgrade (Next.js 16) that is not worth the risk before the demo.
+
 ## Authentication
 
 The demo has no login: the role is picked in the header and kept in a cookie. Every API route reads the role
@@ -120,7 +160,8 @@ provider) and maps groups or app roles to "HR" and "manager of city X".
 | `src/lib` | Database, domain constants, PDF parsing and CV facts, intake, search, calendar files, mailer, auth |
 | `seed/` | Generated sample CVs (PDF), sample e-mails (`.eml`) and `seed.json` |
 | `scripts/generate_seed.py` | Regenerates the sample CVs (needs `reportlab`, `pypdfium2`) |
-| `tests/` | API tests (`node:test`) |
+| `tests/` | API tests (`node:test`): `api.test.mjs` (features, permissions, parsing) and `gate.test.mjs` (password gate, brute-force limits) |
+| `docs/` | Demo walkthrough for the presentation |
 | `prototype/` | First single-file prototype (browser storage only) |
 | `Dockerfile`, `docker-compose.yml` | Container build for Coolify or local use |
 

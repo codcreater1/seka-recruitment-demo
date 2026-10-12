@@ -14,6 +14,8 @@ export async function POST(req: Request) {
   const role = body?.role;
   if (!role || !ROLE_OPTIONS.some((r) => r.id === role)) return badRequest('Nieznana rola.');
   const jar = await cookies();
-  jar.set(ROLE_COOKIE, role, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30 });
+  // behind a TLS-terminating proxy (Coolify) the request arrives as plain http with x-forwarded-proto set
+  const https = (req.headers.get('x-forwarded-proto') || new URL(req.url).protocol).replace(':', '').split(',')[0].trim() === 'https';
+  jar.set(ROLE_COOKIE, role, { httpOnly: true, sameSite: 'lax', secure: https, path: '/', maxAge: 60 * 60 * 24 * 30 });
   return json({ session: sessionFromRole(role) });
 }

@@ -3,15 +3,53 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, fmtDate } from './ui';
 
-function Overlay({ onClose, wide, children }: { onClose: () => void; wide?: boolean; children: ReactNode }) {
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function Overlay({ onClose, wide, label, children }: { onClose: () => void; wide?: boolean; label: string; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+
   useEffect(() => {
-    const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const opener = document.activeElement as HTMLElement | null;
+    const focusable = () => [...(box.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((el) => el.offsetParent !== null);
+    (focusable()[0] ?? box.current)?.focus();
+    const on = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        close.current();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = focusable();
+      if (!items.length) {
+        e.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const at = document.activeElement;
+      if (!box.current?.contains(at)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && at === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && at === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener('keydown', on);
-    return () => document.removeEventListener('keydown', on);
-  }, [onClose]);
+    return () => {
+      document.removeEventListener('keydown', on);
+      // give the focus back to the control that opened the dialog (if it is still on the page)
+      if (opener && document.contains(opener)) opener.focus();
+    };
+  }, []);
+
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal${wide ? ' wide' : ''}`} role="dialog" aria-modal="true">
+      <div ref={box} className={`modal${wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
         {children}
       </div>
     </div>
@@ -62,7 +100,7 @@ export function NewModal({ onClose, onCreated }: { onClose: () => void; onCreate
     );
 
   return (
-    <Overlay onClose={onClose}>
+    <Overlay onClose={onClose} label="Nowe zgłoszenie">
       <h2>Nowe zgłoszenie</h2>
       <p className="lead">
         Wgraj CV w formacie PDF albo zapisaną wiadomość e-mail (.eml) z załączonym CV. System odczyta dane i utworzy
@@ -147,7 +185,7 @@ export function IssuesModal({ onClose }: { onClose: () => void }) {
     ['Logowanie', 'Docelowo Microsoft Entra ID (SSO). W demo widok wybiera się z listy.'],
   ];
   return (
-    <Overlay onClose={onClose}>
+    <Overlay onClose={onClose} label="Kwestie do omówienia">
       <h2>Kwestie do omówienia</h2>
       <p className="lead">Założenia przyjęte w tej wersji demonstracyjnej. Każde warto potwierdzić.</p>
       <ol className="issues">
@@ -176,7 +214,7 @@ export function AuditModal({ onClose }: { onClose: () => void }) {
       .catch((e: Error) => setError(e.message));
   }, []);
   return (
-    <Overlay onClose={onClose} wide>
+    <Overlay onClose={onClose} label="Dziennik zdarzeń" wide>
       <h2>Dziennik zdarzeń</h2>
       <p className="lead">Ostatnie operacje na danych osobowych: przyjęcie zgłoszeń, eksporty i usunięcia.</p>
       {error && <p className="err">{error}</p>}
@@ -220,7 +258,7 @@ export function GuideModal({
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   return (
-    <Overlay onClose={onClose} wide>
+    <Overlay onClose={onClose} label="Przewodnik po demo" wide>
       <h2>Przewodnik po demo</h2>
       <p className="lead">Kolejne kroki pokazują najważniejsze funkcje. Każdy przycisk przenosi do odpowiedniego miejsca.</p>
       <ol className="guide">

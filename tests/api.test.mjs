@@ -81,7 +81,8 @@ after(() => {
 
 test('demo data is loaded and PDFs are served', async () => {
   const health = await call('/api/health');
-  assert.equal(health.body.candidates, 22);
+  assert.deepEqual(health.body, { ok: true }, 'the health check says nothing about the data');
+  assert.equal((await candidates()).length, 22);
   const pdf = await call('/api/candidates/seed-03/file');
   assert.equal(pdf.status, 200);
   assert.equal(pdf.headers.get('content-type'), 'application/pdf');
@@ -309,6 +310,91 @@ test('bulk actions, retention and CSV export', async () => {
   assert.ok(!csv.raw.includes("'+48"), 'phone numbers are not prefixed');
 });
 
+test('broken input is refused or flagged, never a crash', async () => {
+  const upload = (blob, name) => {
+    const fd = new FormData();
+    fd.append('file', blob, name);
+    return call('/api/candidates', { method: 'POST', body: fd });
+  };
+  assert.equal((await upload(new Blob([]), 'empty.pdf')).status, 400);
+  assert.equal((await upload(new Blob(['MZ not a document']), 'tool.exe')).status, 400);
+  // starts like a PDF but is not one: the profile is created and handed to a person
+  const broken = await upload(new Blob(['%PDF-1.4\n1 0 obj << broken >> endobj']), 'broken.pdf');
+  assert.equal(broken.status, 201);
+  assert.equal((await detail(broken.body.id)).needsReview, true);
+  // a message without any attachment
+  const eml = [
+    'From: Ewa Brak <ewa.brak@example.com>',
+    'To: kariera@seka.pl',
+    'Subject: Pytanie o prace (Poznań)',
+    'Date: Mon, 12 Oct 2026 10:00:00 +0200',
+    '',
+    'Dzien dobry, czy prowadzicie nabor?',
+    '',
+  ].join('\r\n');
+  const noPdf = await upload(new Blob([eml], { type: 'message/rfc822' }), 'pytanie.eml');
+  assert.equal(noPdf.status, 201);
+  const nd = await detail(noPdf.body.id);
+  assert.equal(nd.city, 'Poznań');
+  assert.equal(nd.needsReview, true);
+  assert.equal(nd.file, null);
+  // impossible dates are not stored, so a calendar file can always be built
+  const some = (await candidates())[0];
+  for (const bad of ['2026-02-31T10:00', '2026-10-12T25:00', 'jutro']) {
+    assert.equal((await patch('/api/candidates/' + some.id, { interviewAt: bad })).status, 400, bad);
+  }
+  // an oversized request is turned away before it is read
+  const big = await call('/api/candidates', { method: 'POST', body: new Blob([new Uint8Array(11 * 1024 * 1024)]) });
+  assert.ok([400, 413].includes(big.status), 'status ' + big.status);
+});
+
+test('security headers and cookie flags', async () => {
+  for (const url of ['/', '/api/health']) {
+    const res = await call(url);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff', url);
+    assert.equal(res.headers.get('x-frame-options'), 'SAMEORIGIN', url);
+    assert.match(res.headers.get('content-security-policy') || '', /frame-ancestors 'self'/, url);
+    assert.equal(res.headers.get('x-powered-by'), null, url);
+  }
+  const res = await fetch(base + '/api/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
+    body: JSON.stringify({ role: 'hr' }),
+  });
+  const cookie = res.headers.get('set-cookie') || '';
+  assert.match(cookie, /HttpOnly/i);
+  assert.match(cookie, /SameSite=lax/i);
+  assert.match(cookie, /Secure/i, 'secure behind an https proxy');
+  const plain = await fetch(base + '/api/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ role: 'hr' }),
+  });
+  assert.doesNotMatch(plain.headers.get('set-cookie') || '', /Secure/i, 'not secure on plain http (local use)');
+});
+
+test('"upcoming interviews" follow the company clock, not UTC', async () => {
+  const warsaw = (offsetMs) => {
+    const p = Object.fromEntries(
+      new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      }).formatToParts(new Date(Date.now() + offsetMs)).map((x) => [x.type, x.value]),
+    );
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+  };
+  const make = async (name) => {
+    const r = await post('/api/ingest', { from: `${name} <${name.toLowerCase().replace(/\W/g, '')}@example.org>`, subject: 'Aplikacja (Gdańsk)' }, null, { 'x-api-key': KEY });
+    return r.body.id;
+  };
+  const soon = await make('Zegar Pozniej');
+  const earlier = await make('Zegar Wczesniej');
+  await patch('/api/candidates/' + soon, { interviewAt: warsaw(90 * 60000) });
+  await patch('/api/candidates/' + earlier, { interviewAt: warsaw(-90 * 60000) });
+  const upcoming = (await call('/api/stats')).body.stats.upcomingInterviews.map((x) => x.id);
+  assert.ok(upcoming.includes(soon), 'an interview in 90 minutes is upcoming');
+  assert.ok(!upcoming.includes(earlier), 'an interview 90 minutes ago is not');
+});
+
 test('GDPR: export and delete a profile, audit log, demo reset', async () => {
   const target = (await candidates()).find((c) => c.name === 'Paweł Woźniak');
   const exp = await call(`/api/candidates/${target.id}/export`);
@@ -320,5 +406,5 @@ test('GDPR: export and delete a profile, audit log, demo reset', async () => {
   for (const a of ['export', 'delete', 'bulk-delete-expired', 'bulk-reject']) assert.ok(audit.includes(a), a);
   const reset = await post('/api/demo/reset', {});
   assert.equal(reset.status, 200);
-  assert.equal((await call('/api/health')).body.candidates, 22);
+  assert.equal((await candidates()).length, 22);
 });

@@ -17,7 +17,7 @@ export default function Board({ items, canEdit, anon, onOpen, onMove }: Props) {
   const [over, setOver] = useState<StatusId | null>(null);
 
   return (
-    <div className="board" role="list" aria-label="Tablica zgłoszeń według statusu">
+    <div className="board">
       {STATUSES.map((s) => {
         const cards = items.filter((c) => c.status === s.id);
         return (
@@ -25,7 +25,6 @@ export default function Board({ items, canEdit, anon, onOpen, onMove }: Props) {
             key={s.id}
             className={`col${over === s.id ? ' over' : ''}`}
             style={{ ['--dot' as string]: `var(${STATUS_VAR[s.id]})` }}
-            role="listitem"
             onDragOver={(e) => {
               if (!canEdit) return;
               e.preventDefault();
@@ -40,10 +39,10 @@ export default function Board({ items, canEdit, anon, onOpen, onMove }: Props) {
               if (canEdit && moved && moved.status !== s.id) onMove(id, s.id);
             }}
           >
-            <h3>
+            <h2>
               <span><i />{s.label}</span>
               <span className="n">{cards.length}</span>
-            </h3>
+            </h2>
             <div className="cards">
               {cards.map((c) => (
                 <button

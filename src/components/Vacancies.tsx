@@ -83,11 +83,11 @@ export default function Vacancies({ vacancies, canEdit, onCreate, onToggle, onSh
         </form>
       )}
 
-      <h3 className="vh">Otwarte ({open.length})</h3>
+      <h2 className="vh">Otwarte ({open.length})</h2>
       {open.length ? <div className="vgrid">{open.map(card)}</div> : <p className="hint">Brak otwartych ogłoszeń.</p>}
       {closed.length > 0 && (
         <>
-          <h3 className="vh">Zamknięte ({closed.length})</h3>
+          <h2 className="vh">Zamknięte ({closed.length})</h2>
           <div className="vgrid">{closed.map(card)}</div>
         </>
       )}
