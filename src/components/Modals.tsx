@@ -220,7 +220,8 @@ export function AuditModal({ onClose }: { onClose: () => void }) {
       {error && <p className="err">{error}</p>}
       {!entries && !error && <div className="loading">Wczytywanie…</div>}
       {entries && (
-        <div className="table-wrap">
+        // focusable so that the scrolling table can be reached and scrolled with the keyboard
+        <div className="table-wrap" role="region" aria-label="Wpisy dziennika zdarzeń" tabIndex={0}>
           <table className="audit">
             <thead>
               <tr><th>Czas</th><th>Kto</th><th>Akcja</th><th>Szczegóły</th></tr>
