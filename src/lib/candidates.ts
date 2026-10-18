@@ -645,3 +645,45 @@ export function addFeedback(
     .run(candidateId, s.name, nowIso(), f.communication, f.knowledge, f.fit, f.recommendation, f.comment);
   addEvent(candidateId, s.name, 'Dodano opinię z rozmowy');
 }
+
+/**
+ * Merges a profile flagged as a duplicate into the profile it duplicates: notes, opinions, e-mails and history move to
+ * the older profile, which keeps its status and gains the CV / phone / vacancy it lacked. The duplicate is then removed.
+ */
+export function mergeDuplicate(s: Session, id: string): { ok: true; targetId: string } | { ok: false; error: string } {
+  const src = getRow(s, id);
+  if (!src) return { ok: false, error: 'Nie znaleziono zgłoszenia.' };
+  if (!src.duplicate_of) return { ok: false, error: 'To zgłoszenie nie jest oznaczone jako duplikat.' };
+  const target = getRow(s, src.duplicate_of);
+  if (!target) return { ok: false, error: 'Nie znaleziono profilu, z którym można połączyć to zgłoszenie.' };
+  const db = getDb();
+  const takeFile = !target.file_id && !!src.file_id;
+  db.transaction(() => {
+    for (const table of ['notes', 'events', 'emails', 'feedback']) {
+      db.prepare(`UPDATE ${table} SET candidate_id = ? WHERE candidate_id = ?`).run(target.id, src.id);
+    }
+    db.prepare('UPDATE candidates SET duplicate_of = ? WHERE duplicate_of = ? AND id <> ?').run(target.id, src.id, target.id);
+    const fill: string[] = [];
+    const args: unknown[] = [];
+    if (takeFile) {
+      fill.push('file_id = ?', 'file_name = ?', 'file_size = ?', 'raw_text = ?', 'cv_state = ?');
+      args.push(src.file_id, src.file_name, src.file_size, src.raw_text, src.cv_state);
+    }
+    if (!target.phone && src.phone) { fill.push('phone = ?'); args.push(src.phone); }
+    if (!target.vacancy_id && src.vacancy_id) { fill.push('vacancy_id = ?'); args.push(src.vacancy_id); }
+    if (fill.length) db.prepare(`UPDATE candidates SET ${fill.join(', ')} WHERE id = ?`).run(...args, target.id);
+    db.prepare('DELETE FROM candidates WHERE id = ?').run(src.id);
+  })();
+  removeFromIndex(src.id);
+  if (takeFile) indexCandidate(target.id, target.name, target.position, src.raw_text);
+  if (src.file_id && !takeFile) {
+    try {
+      fs.unlinkSync(filePath(src.file_id));
+    } catch {
+      /* already gone */
+    }
+  }
+  addEvent(target.id, s.name, `Połączono z duplikatem (zgłoszenie z ${src.received_at.slice(0, 10)}, ${src.city}); notatki i korespondencja przeniesione`);
+  audit(s.name, 'merge', `Połączono duplikat ${src.name} (${src.city}, ${src.received_at.slice(0, 10)}) z profilem ${target.id}`);
+  return { ok: true, targetId: target.id };
+}

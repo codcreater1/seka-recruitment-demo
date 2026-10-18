@@ -192,5 +192,5 @@ The prototype is Next.js and SQLite; SEKA's production stack is Laravel, Postgre
 - [ ] OCR for scanned CVs
 - [ ] Outlook `.msg` import (`.eml` works)
 - [ ] Several attachments per application (cover letter, certificates)
-- [ ] Merge duplicate profiles
+- [x] Merge duplicate profiles ("Połącz z poprzednim" on a flagged duplicate)
 - [ ] Notifications to HR and managers (e-mail or Teams webhook)

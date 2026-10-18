@@ -45,6 +45,7 @@ type Props = {
   onSendEmail: (template: EmailTemplate) => Promise<void>;
   onAttachCv: (file: File) => Promise<boolean>;
   onDelete: () => Promise<void>;
+  onMerge: () => Promise<void>;
   onOpen: (id: string) => void;
 };
 
@@ -55,12 +56,13 @@ const MAIL_STATUS: Record<string, string> = { sent: 'wysłano', simulated: 'symu
 const HIDDEN = '— ukryte (tryb anonimowy)';
 
 export default function Detail({
-  c, session, anon, vacancies, onBack, onClose, onPatch, onNote, onFeedback, onSendEmail, onAttachCv, onDelete, onOpen,
+  c, session, anon, vacancies, onBack, onClose, onPatch, onNote, onFeedback, onSendEmail, onAttachCv, onDelete, onMerge, onOpen,
 }: Props) {
   const edit = session.canEdit;
   const [tab, setTab] = useState<Tab>('overview');
   const [note, setNote] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmMerge, setConfirmMerge] = useState(false);
   const [fb, setFb] = useState<FeedbackInput>({ communication: 3, knowledge: 3, fit: 3, recommendation: 'warunkowo', comment: '' });
   const idx = PIPELINE.indexOf(c.status);
   const cityOptions = [UNASSIGNED_CITY, ...CITIES];
@@ -142,6 +144,15 @@ export default function Detail({
               <button className="btn small" type="button" onClick={() => onPatch({ dismissDuplicate: true }, 'Oznaczono jako niebędące duplikatem')}>
                 To nie duplikat
               </button>
+            )}
+            {edit && !confirmMerge && (
+              <button className="btn small" type="button" onClick={() => setConfirmMerge(true)}>Połącz z poprzednim</button>
+            )}
+            {edit && confirmMerge && (
+              <>
+                <button className="btn small primary" type="button" onClick={onMerge}>Potwierdź połączenie</button>
+                <button className="btn small" type="button" onClick={() => setConfirmMerge(false)}>Anuluj</button>
+              </>
             )}
           </span>
         </div>

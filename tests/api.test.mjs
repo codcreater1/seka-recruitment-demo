@@ -277,6 +277,31 @@ test('e-mail intake: key, PDF, vacancy link, duplicates, missing attachment', as
   assert.equal((await detail(none.body.id)).city, 'Gdańsk');
 });
 
+
+test('merging a duplicate moves notes and history to the older profile', async () => {
+  const headers = { 'x-api-key': KEY };
+  const pdf = seedFile('incoming/CV_weronika_adamska.pdf').toString('base64');
+  // a complete application from an address that already has profiles is flagged as a duplicate of the latest one
+  const second = await post('/api/ingest', {
+    from: 'Weronika Adamska <weronika.adamska@example.com>',
+    subject: 'Aplikacja: Technik laboratoryjny (Kraków)',
+    attachments: [{ name: 'CV.pdf', contentBase64: pdf }],
+  }, null, headers);
+  const first = { body: { id: (await detail(second.body.id)).duplicateOf } };
+  assert.ok(first.body.id, 'flagged as a duplicate');
+  assert.equal((await post(`/api/candidates/${second.body.id}/notes`, { text: 'Notatka na duplikacie' })).status, 201);
+  // only HR may merge, and a profile that is not a duplicate cannot be merged
+  assert.equal((await post(`/api/candidates/${second.body.id}/merge`, {}, MANAGER)).status >= 400, true);
+  assert.equal((await post(`/api/candidates/${first.body.id}/merge`, {})).status, 400);
+  const res = await post(`/api/candidates/${second.body.id}/merge`, {});
+  assert.equal(res.status, 200);
+  assert.equal(res.body.targetId, first.body.id);
+  assert.equal((await call('/api/candidates/' + second.body.id)).status, 404);
+  const kept = await detail(first.body.id);
+  assert.ok(kept.notes.some((n) => n.text === 'Notatka na duplikacie'));
+  assert.ok(kept.events.some((h) => h.text.startsWith('Połączono z duplikatem')));
+});
+
 test('every seeded CV is read back correctly', async () => {
   const seed = JSON.parse(fs.readFileSync(path.join(root, 'seed', 'seed.json'), 'utf8'));
   const failures = [];

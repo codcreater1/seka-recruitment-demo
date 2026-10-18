@@ -450,6 +450,20 @@ export default function App() {
     }
   };
 
+  const merge = async () => {
+    if (!selId) return;
+    try {
+      const res = await api<{ targetId: string }>(`/api/candidates/${selId}/merge`, { method: 'POST' });
+      setItems((prev) => prev.filter((c) => c.id !== selId));
+      setDetail(null);
+      setSelId(res.targetId);
+      say('Zgłoszenia połączono: notatki i korespondencja trafiły do wcześniejszego profilu');
+      await loadList();
+    } catch (e) {
+      say((e as Error).message);
+    }
+  };
+
   const reloadAll = async () => {
     await Promise.all([loadList(), loadVacancies()]);
     if (view === 'summary') await loadStats();
@@ -622,6 +636,7 @@ export default function App() {
         onSendEmail={sendEmail}
         onAttachCv={attachCv}
         onDelete={remove}
+        onMerge={merge}
         onOpen={(id) => setSelId(id)}
       />
     ) : selId ? (
