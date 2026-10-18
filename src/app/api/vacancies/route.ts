@@ -1,4 +1,4 @@
-import { badRequest, forbidden, getSession, json } from '@/lib/auth';
+import { badRequest, json, requireEditor, requireSession } from '@/lib/auth';
 import { createVacancy, listVacancies } from '@/lib/candidates';
 import { isCity, isPosition, UNASSIGNED_CITY, UNKNOWN_POSITION } from '@/lib/domain';
 
@@ -6,12 +6,14 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  return json({ vacancies: listVacancies(await getSession()) });
+  const session = await requireSession();
+  if (session instanceof Response) return session;
+  return json({ vacancies: listVacancies(session) });
 }
 
 export async function POST(req: Request) {
-  const session = await getSession();
-  if (!session.canEdit) return forbidden('Dodawanie ogłoszeń jest dostępne tylko dla HR.');
+  const session = await requireEditor('Dodawanie ogłoszeń jest dostępne tylko dla HR.');
+  if (session instanceof Response) return session;
   const body = (await req.json().catch(() => null)) as { position?: unknown; city?: unknown } | null;
   const { position, city } = body || {};
   if (!isPosition(position) || position === UNKNOWN_POSITION) return badRequest('Wybierz stanowisko.');

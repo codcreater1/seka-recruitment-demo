@@ -11,7 +11,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEY = 'test-ingest-key';
-const MANAGER = 'demo-role=' + encodeURIComponent('mgr:Kraków');
+let MANAGER; // branch manager of Kraków
+let HR; // HR manager (the default for every call)
+let ADMIN;
 let base = '';
 let server;
 let dataDir;
@@ -25,8 +27,21 @@ const freePort = () =>
     });
   });
 
+/** Signs in as a demo account and returns the session cookie. */
+async function login(account) {
+  const res = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ account }),
+  });
+  assert.equal(res.status, 200, 'sign in as ' + account);
+  return res.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
+}
+
+/** cookie: undefined = signed in as HR manager, null = not signed in, string = that session. */
 async function call(url, init = {}, cookie) {
-  const res = await fetch(base + url, { ...init, headers: { ...(init.headers || {}), ...(cookie ? { cookie } : {}) } });
+  const c = cookie === undefined ? HR : cookie;
+  const res = await fetch(base + url, { ...init, headers: { ...(init.headers || {}), ...(c ? { cookie: c } : {}) } });
   const raw = await res.text();
   let body = raw;
   try {
@@ -72,6 +87,9 @@ before(async () => {
     }
     await new Promise((r) => setTimeout(r, 500));
   }
+  HR = await login('hr');
+  ADMIN = await login('admin');
+  MANAGER = await login('mgr:Kraków');
 });
 
 after(() => {
@@ -356,19 +374,19 @@ test('security headers and cookie flags', async () => {
     assert.match(res.headers.get('content-security-policy') || '', /frame-ancestors 'self'/, url);
     assert.equal(res.headers.get('x-powered-by'), null, url);
   }
-  const res = await fetch(base + '/api/session', {
+  const res = await fetch(base + '/api/auth/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
-    body: JSON.stringify({ role: 'hr' }),
+    body: JSON.stringify({ account: 'hr' }),
   });
   const cookie = res.headers.get('set-cookie') || '';
   assert.match(cookie, /HttpOnly/i);
   assert.match(cookie, /SameSite=lax/i);
   assert.match(cookie, /Secure/i, 'secure behind an https proxy');
-  const plain = await fetch(base + '/api/session', {
+  const plain = await fetch(base + '/api/auth/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ role: 'hr' }),
+    body: JSON.stringify({ account: 'hr' }),
   });
   assert.doesNotMatch(plain.headers.get('set-cookie') || '', /Secure/i, 'not secure on plain http (local use)');
 });
@@ -395,6 +413,67 @@ test('"upcoming interviews" follow the company clock, not UTC', async () => {
   assert.ok(!upcoming.includes(earlier), 'an interview 90 minutes ago is not');
 });
 
+test('sign-in: nothing is open without a session, tampered cookies are refused', async () => {
+  for (const url of ['/api/candidates', '/api/stats', '/api/vacancies', '/api/session', '/api/search?q=abc', '/api/export', '/api/audit']) {
+    assert.equal((await call(url, {}, null)).status, 401, url);
+  }
+  assert.equal((await post('/api/candidates/x/notes', { text: 'a' }, null)).status, 401);
+  // the page sends a visitor to the sign-in page, the sign-in page itself is open
+  const home = await fetch(base + '/', { redirect: 'manual' });
+  assert.ok([302, 303, 307, 308].includes(home.status), 'home redirects, got ' + home.status);
+  assert.match(home.headers.get('location') || '', /\/login$/);
+  assert.equal((await call('/login', {}, null)).status, 200);
+  // a made-up or altered cookie is not a session
+  const good = HR.split('=')[1];
+  const [body, mac] = good.split('.');
+  assert.equal((await call('/api/candidates', {}, 'seka-session=' + body + '.' + mac.slice(0, -2) + 'xx')).status, 401);
+  const forged = Buffer.from(JSON.stringify({ id: 'admin', role: 'admin', city: null, name: 'x', email: 'x', exp: 9999999999 })).toString('base64url');
+  assert.equal((await call('/api/candidates', {}, 'seka-session=' + forged + '.' + mac)).status, 401);
+  assert.equal((await call('/api/candidates', {}, 'seka-session=garbage')).status, 401);
+  assert.equal((await call('/api/candidates', {}, 'demo-role=hr')).status, 401, 'the old role cookie means nothing');
+  // unknown account
+  const bad = await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account: 'root' }) });
+  assert.equal(bad.status, 400);
+});
+
+test('three roles: administrator, HR manager, branch manager', async () => {
+  const me = async (cookie) => (await call('/api/session', {}, cookie)).body;
+  const admin = await me(ADMIN);
+  assert.equal(admin.session.role, 'admin');
+  assert.equal(admin.session.canEdit, true);
+  assert.equal(admin.session.canConfigure, true);
+  const hr = await me(HR);
+  assert.equal(hr.session.role, 'hr');
+  assert.equal(hr.session.canEdit, true);
+  assert.equal(hr.session.canConfigure, false);
+  assert.equal(hr.session.city, null);
+  const mgr = await me(MANAGER);
+  assert.equal(mgr.session.role, 'manager');
+  assert.equal(mgr.session.canEdit, false);
+  assert.equal(mgr.session.canConfigure, false);
+  assert.equal(mgr.session.city, 'Kraków');
+  assert.equal(admin.authMode, 'demo');
+  assert.ok(admin.accounts.length >= 8, 'the demo offers an account for every role and branch');
+
+  // the administrator works like the HR manager, over all cities
+  assert.equal((await candidates(ADMIN)).length, (await candidates(HR)).length);
+  const first = (await candidates(HR))[0];
+  assert.equal((await patch('/api/candidates/' + first.id, { rating: 4 }, ADMIN)).status, 200);
+  // the demo reset (and later the settings) belong to the administrator only
+  assert.equal((await post('/api/demo/reset', {}, HR)).status, 403);
+  assert.equal((await post('/api/demo/reset', {}, MANAGER)).status, 403);
+});
+
+test('sign-out ends the browser session', async () => {
+  const res = await fetch(base + '/api/auth/logout', { method: 'POST', headers: { cookie: HR } });
+  assert.equal(res.status, 200);
+  const cleared = res.headers.get('set-cookie') || '';
+  assert.match(cleared, /seka-session=;|seka-session=$/m);
+  assert.match(cleared, /Max-Age=0|Expires=/i);
+  const audit = (await call('/api/audit')).body.entries.map((e) => e.action);
+  assert.ok(audit.includes('login') && audit.includes('logout'), 'sign-in and sign-out are logged');
+});
+
 test('GDPR: export and delete a profile, audit log, demo reset', async () => {
   const target = (await candidates()).find((c) => c.name === 'Paweł Woźniak');
   const exp = await call(`/api/candidates/${target.id}/export`);
@@ -404,7 +483,7 @@ test('GDPR: export and delete a profile, audit log, demo reset', async () => {
   assert.equal((await call('/api/candidates/' + target.id)).status, 404);
   const audit = (await call('/api/audit')).body.entries.map((e) => e.action);
   for (const a of ['export', 'delete', 'bulk-delete-expired', 'bulk-reject']) assert.ok(audit.includes(a), a);
-  const reset = await post('/api/demo/reset', {});
+  const reset = await post('/api/demo/reset', {}, ADMIN);
   assert.equal(reset.status, 200);
   assert.equal((await candidates()).length, 22);
 });

@@ -1,5 +1,5 @@
 import { addEvent, audit, getDb } from '@/lib/db';
-import { badRequest, forbidden, getSession, json, notFound } from '@/lib/auth';
+import { badRequest, json, notFound, requireEditor, requireSession } from '@/lib/auth';
 import { deleteCandidate, getCandidate, getRow, listVacancies, vacancyExists } from '@/lib/candidates';
 import { isCity, isPosition, isStatus, statusLabel } from '@/lib/domain';
 import { indexCandidate } from '@/lib/search';
@@ -12,14 +12,16 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
-  const candidate = await getCandidate(await getSession(), id);
+  const session = await requireSession();
+  if (session instanceof Response) return session;
+  const candidate = await getCandidate(session, id);
   return candidate ? json({ candidate }) : notFound('Nie znaleziono zgłoszenia.');
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
   const { id } = await params;
-  const session = await getSession();
-  if (!session.canEdit) return forbidden('Zmiany danych są dostępne tylko dla HR.');
+  const session = await requireEditor('Zmiany danych są dostępne tylko dla HR.');
+  if (session instanceof Response) return session;
   const row = getRow(session, id);
   if (!row) return notFound('Nie znaleziono zgłoszenia.');
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -101,8 +103,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
 /** GDPR: erase the profile together with its file. The deletion itself stays in the audit log. */
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { id } = await params;
-  const session = await getSession();
-  if (!session.canEdit) return forbidden('Usuwanie profili jest dostępne tylko dla HR.');
+  const session = await requireEditor('Usuwanie profili jest dostępne tylko dla HR.');
+  if (session instanceof Response) return session;
   if (!deleteCandidate(session, id)) return notFound('Nie znaleziono zgłoszenia.');
   audit(session.name, 'delete-confirmed', id);
   return json({ ok: true });

@@ -1,13 +1,13 @@
 import { audit, resetDemoData } from '@/lib/db';
-import { forbidden, getSession, json } from '@/lib/auth';
+import { json, requireAdmin } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /** Demo only: wipe all data and load the sample candidates again. Disabled when SEED_DEMO_DATA=false. */
 export async function POST() {
-  const session = await getSession();
-  if (!session.canEdit) return forbidden('Przywracanie danych jest dostępne tylko dla HR.');
+  const session = await requireAdmin('Przywracanie danych demonstracyjnych jest dostępne tylko dla administratora.');
+  if (session instanceof Response) return session;
   if (process.env.SEED_DEMO_DATA === 'false') return json({ error: 'Przywracanie danych demonstracyjnych jest wyłączone.' }, 403);
   resetDemoData();
   audit(session.name, 'demo-reset', 'Przywrócono dane demonstracyjne');

@@ -85,13 +85,22 @@ export const norm = (s: string) =>
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '');
 
+/** admin: everything and the settings; hr: the whole company; manager: one branch (read, comment, opinions). */
+export type Role = 'admin' | 'hr' | 'manager';
+export const ROLE_LABEL: Record<Role, string> = { admin: 'Administrator', hr: 'HR manager', manager: 'Kierownik oddziału' };
+
 export type Session = {
-  role: 'hr' | 'manager';
+  /** Account id: "admin", "hr", "mgr:Kraków" in the demo; "entra:<object id>" with Microsoft Entra ID. */
+  id: string;
+  role: Role;
   /** Branch the user is limited to; null means all cities. */
   city: string | null;
   name: string;
+  email: string;
+  /** May change candidate data and run bulk actions (admin, hr). */
   canEdit: boolean;
-  id: string;
+  /** May change the system settings (admin only). */
+  canConfigure: boolean;
 };
 
 export type NoteDto = { id: number; author: string; text: string; createdAt: string };

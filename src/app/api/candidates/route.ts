@@ -1,4 +1,4 @@
-import { badRequest, forbidden, getSession, json } from '@/lib/auth';
+import { badRequest, json, requireEditor, requireSession } from '@/lib/auth';
 import { ingestApplication, ingestEml, listCandidates } from '@/lib/candidates';
 
 export const runtime = 'nodejs';
@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 const MAX_BYTES = 10 * 1024 * 1024;
 
 export async function GET() {
-  const session = await getSession();
+  const session = await requireSession();
+  if (session instanceof Response) return session;
   return json({ candidates: listCandidates(session) });
 }
 
@@ -16,8 +17,8 @@ export async function GET() {
  * The profile is created the same way as for an incoming e-mail.
  */
 export async function POST(req: Request) {
-  const session = await getSession();
-  if (!session.canEdit) return forbidden('Dodawanie zgłoszeń jest dostępne tylko dla HR.');
+  const session = await requireEditor('Dodawanie zgłoszeń jest dostępne tylko dla HR.');
+  if (session instanceof Response) return session;
   // refuse an oversized body before it is read into memory
   if (Number(req.headers.get('content-length') || 0) > MAX_BYTES + 256 * 1024) return json({ error: 'Plik jest większy niż 10 MB.' }, 413);
   const form = await req.formData().catch(() => null);

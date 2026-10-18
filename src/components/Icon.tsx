@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 export type IconName =
   | 'list' | 'board' | 'calendar' | 'briefcase' | 'chart' | 'plus' | 'search' | 'download'
-  | 'book' | 'history' | 'help' | 'menu' | 'chevron';
+  | 'book' | 'history' | 'help' | 'menu' | 'chevron' | 'logout' | 'settings';
 
 const PATHS: Record<IconName, ReactNode> = {
   list: <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />,
@@ -49,6 +49,8 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   chevron: <path d="m6 9 6 6 6-6" />,
+  logout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
+  settings: <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />,
 };
 
 export default function Icon({ name, size = 18 }: { name: IconName; size?: number }) {

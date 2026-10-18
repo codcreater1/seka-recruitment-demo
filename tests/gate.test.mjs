@@ -68,9 +68,10 @@ test('the page and the data API need the password; health and intake do not', as
   assert.match(anon.headers.get('www-authenticate') || '', /^Basic realm=/);
   assert.equal((await open({}, '/api/candidates')).status, 401);
   assert.equal((await open({}, '/api/health')).status, 200, 'container health check stays open');
-  const ok = await open({ authorization: basic(PASSWORD) });
+  // with the password the gate lets the request through: the sign-in page opens, the data API then wants a session
+  const ok = await open({ authorization: basic(PASSWORD) }, '/login');
   assert.equal(ok.status, 200);
-  assert.equal((await open({ authorization: basic(PASSWORD, '') }, '/api/candidates')).status, 200, 'any user name works');
+  assert.equal((await open({ authorization: basic(PASSWORD, '') }, '/api/candidates')).status, 401, 'any user name works; no session yet');
   const ingest = await fetch(base + '/api/ingest', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': KEY },
@@ -82,7 +83,7 @@ test('the page and the data API need the password; health and intake do not', as
 test('requests without credentials are not counted as attempts', async () => {
   const headers = { 'x-forwarded-for': '203.0.113.20' };
   for (let i = 0; i < 15; i++) assert.equal((await open(headers)).status, 401);
-  assert.equal((await open({ ...headers, authorization: basic(PASSWORD) })).status, 200);
+  assert.equal((await open({ ...headers, authorization: basic(PASSWORD) }, '/login')).status, 200);
 });
 
 test('repeated wrong passwords are slowed down per address', async () => {
@@ -90,10 +91,10 @@ test('repeated wrong passwords are slowed down per address', async () => {
   for (let i = 0; i < 10; i++) {
     assert.equal((await open({ ...attacker, authorization: basic('wrong-' + i) })).status, 401);
   }
-  const blocked = await open({ ...attacker, authorization: basic(PASSWORD) });
+  const blocked = await open({ ...attacker, authorization: basic(PASSWORD) }, '/login');
   assert.equal(blocked.status, 429, 'even the right password waits while the address is blocked');
   assert.ok(Number(blocked.headers.get('retry-after')) > 0);
-  const someoneElse = await open({ 'x-forwarded-for': '203.0.113.31', authorization: basic(PASSWORD) });
+  const someoneElse = await open({ 'x-forwarded-for': '203.0.113.31', authorization: basic(PASSWORD) }, '/login');
   assert.equal(someoneElse.status, 200, 'other addresses are not affected');
 });
 

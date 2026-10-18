@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { SEED_DIR } from '@/lib/db';
-import { badRequest, forbidden, getSession, json } from '@/lib/auth';
+import { badRequest, json, requireEditor } from '@/lib/auth';
 import { ingestApplication, ingestEml } from '@/lib/candidates';
 
 export const runtime = 'nodejs';
@@ -24,8 +24,8 @@ export async function GET() {
 
 /** Runs one of the bundled sample CVs through the same intake as a real e-mail. */
 export async function POST(req: Request) {
-  const session = await getSession();
-  if (!session.canEdit) return forbidden('Symulacja wiadomości jest dostępna tylko dla HR.');
+  const session = await requireEditor('Symulacja wiadomości jest dostępna tylko dla HR.');
+  if (session instanceof Response) return session;
   const body = (await req.json().catch(() => null)) as { file?: string } | null;
   const sample = samples().find((s) => s.file === body?.file);
   if (!sample) return badRequest('Nieznana próbka.');

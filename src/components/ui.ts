@@ -39,6 +39,11 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error('Brak połączenia z serwerem. Sprawdź połączenie i spróbuj ponownie.');
   }
+  if (res.status === 401 && typeof window !== 'undefined' && !url.startsWith('/api/auth/')) {
+    // the session ended: back to the sign-in page
+    window.location.href = '/login';
+    throw new Error('Sesja wygasła. Zaloguj się ponownie.');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { error?: string }).error || STATUS_TEXT[res.status] || `Błąd serwera (${res.status})`);
   return data as T;

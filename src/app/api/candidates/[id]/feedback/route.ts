@@ -1,4 +1,4 @@
-import { badRequest, getSession, json, notFound } from '@/lib/auth';
+import { badRequest, json, notFound, requireSession } from '@/lib/auth';
 import { addFeedback, getCandidate, getRow } from '@/lib/candidates';
 import { isRecommendation } from '@/lib/domain';
 
@@ -10,7 +10,8 @@ const grade = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v
 /** Opinion after an interview. HR and the manager of the branch may add one; nobody can edit it later. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await requireSession();
+  if (session instanceof Response) return session;
   if (!getRow(session, id)) return notFound('Nie znaleziono zgłoszenia.');
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const communication = grade(b?.communication);

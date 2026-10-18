@@ -249,10 +249,10 @@ export function AuditModal({ onClose }: { onClose: () => void }) {
 export type GuideStep = { title: string; text: string; cta: string; run: () => void };
 
 export function GuideModal({
-  steps, canEdit, onClose, onReset,
+  steps, canReset, onClose, onReset,
 }: {
   steps: GuideStep[];
-  canEdit: boolean;
+  canReset: boolean;
   onClose: () => void;
   onReset: () => Promise<void>;
 }) {
@@ -282,7 +282,7 @@ export function GuideModal({
           </li>
         ))}
       </ol>
-      {canEdit && (
+      {canReset && (
         <div className="guide-reset">
           {!confirm ? (
             <button className="btn small" type="button" onClick={() => setConfirm(true)}>Przywróć dane demonstracyjne…</button>

@@ -1,5 +1,5 @@
 import { addEvent, getDb, nowIso } from '@/lib/db';
-import { badRequest, getSession, json, notFound } from '@/lib/auth';
+import { badRequest, json, notFound, requireSession } from '@/lib/auth';
 import { getCandidate, getRow } from '@/lib/candidates';
 
 export const runtime = 'nodejs';
@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await requireSession();
+  if (session instanceof Response) return session;
   if (!getRow(session, id)) return notFound('Nie znaleziono zgłoszenia.');
   const body = (await req.json().catch(() => null)) as { text?: unknown } | null;
   const text = typeof body?.text === 'string' ? body.text.trim() : '';

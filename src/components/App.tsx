@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CITIES,
+  ROLE_LABEL,
   STATUSES,
   UNASSIGNED_CITY,
   norm,
@@ -30,6 +31,7 @@ type ModalKind = 'new' | 'issues' | 'audit' | 'guide' | null;
 type View = 'list' | 'board' | 'calendar' | 'vacancies' | 'summary';
 
 const WEEK = 7 * 864e5;
+const ROLE_INITIALS = { admin: 'AD', hr: 'HR', manager: 'KO' } as const;
 const QUICK_LABEL: Record<Exclude<QuickFilter, null>, string> = {
   review: 'Do sprawdzenia',
   duplicates: 'Możliwe duplikaty',
@@ -73,6 +75,7 @@ const VIEW_TITLE: Record<View, string> = {
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [roles, setRoles] = useState<RoleOption[]>([]);
+  const [authMode, setAuthMode] = useState<'demo' | 'entra'>('demo');
   const [items, setItems] = useState<CandidateListItem[]>([]);
   const [vacancies, setVacancies] = useState<VacancyDto[] | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -126,9 +129,10 @@ export default function App() {
   }, []);
 
   const loadSession = useCallback(async () => {
-    const data = await api<{ session: Session; roles: RoleOption[] }>('/api/session');
+    const data = await api<{ session: Session; accounts: RoleOption[]; authMode: 'demo' | 'entra' }>('/api/session');
     setSession(data.session);
-    setRoles(data.roles);
+    setRoles(data.accounts);
+    setAuthMode(data.authMode);
     return data.session;
   }, []);
 
@@ -507,10 +511,10 @@ export default function App() {
 
   const changeRole = async (id: string) => {
     try {
-      const data = await api<{ session: Session }>('/api/session', {
+      const data = await api<{ session: Session }>('/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ role: id }),
+        body: JSON.stringify({ account: id }),
       });
       setSession(data.session);
       setCity(data.session.city ?? 'all');
@@ -525,6 +529,15 @@ export default function App() {
     } catch (e) {
       say((e as Error).message);
     }
+  };
+
+  const signOut = async () => {
+    try {
+      await api('/api/auth/logout', { method: 'POST' });
+    } catch {
+      /* the sign-in page opens either way */
+    }
+    window.location.href = '/login';
   };
 
   const clearFilters = () => {
@@ -681,7 +694,7 @@ export default function App() {
                 aria-label={`${session?.name ?? 'Użytkownik'}: widok i ustawienia`}
                 onClick={() => setSettingsOpen((o) => !o)}
               >
-                <span className="avatar sm" aria-hidden="true">{canEdit ? 'HR' : 'KO'}</span>
+                <span className="avatar sm" aria-hidden="true">{session ? ROLE_INITIALS[session.role] : '…'}</span>
                 <span className="user-text">
                   <strong>{session?.name ?? 'Wczytywanie…'}</strong>
                   <small>Widok i ustawienia</small>
@@ -691,12 +704,21 @@ export default function App() {
               {settingsOpen && (
                 <div className="menu-pop" id="user-menu" role="group" aria-label="Widok i ustawienia">
                   <div className="side-block">
-                    <label className="side-label" htmlFor="role">Zalogowano jako</label>
-                    <select id="role" value={session?.id ?? 'hr'} onChange={(e) => changeRole(e.target.value)}>
-                      {roles.map((r) => (
-                        <option key={r.id} value={r.id}>{r.label}</option>
-                      ))}
-                    </select>
+                    <span className="side-label">Zalogowano jako</span>
+                    <div className="whoami">
+                      <strong>{session?.name}</strong>
+                      <small>{session?.email} · {session ? ROLE_LABEL[session.role] : ''}</small>
+                    </div>
+                    {authMode === 'demo' && roles.length > 0 && (
+                      <>
+                        <label className="side-label" htmlFor="role">Przełącz konto (demo)</label>
+                        <select id="role" value={session?.id ?? ''} onChange={(e) => changeRole(e.target.value)}>
+                          {roles.map((r) => (
+                            <option key={r.id} value={r.id}>{r.label}</option>
+                          ))}
+                        </select>
+                      </>
+                    )}
                   </div>
                   <label className="switch" htmlFor="anon">
                     <input id="anon" type="checkbox" checked={anon} onChange={(e) => toggleAnon(e.target.checked)} />
@@ -739,6 +761,9 @@ export default function App() {
                         <Icon name="download" size={16} />Eksport CSV
                       </a>
                     )}
+                    <button className="side-link" type="button" onClick={signOut}>
+                      <Icon name="logout" size={16} />Wyloguj
+                    </button>
                   </div>
                   <div className="side-foot">Dane fikcyjne · wersja {process.env.NEXT_PUBLIC_APP_VERSION}</div>
                 </div>
@@ -964,7 +989,7 @@ export default function App() {
       {modal === 'new' && <NewModal onClose={() => setModal(null)} onCreated={onCreated} />}
       {modal === 'issues' && <IssuesModal onClose={() => setModal(null)} />}
       {modal === 'audit' && <AuditModal onClose={() => setModal(null)} />}
-      {modal === 'guide' && <GuideModal steps={guideSteps} canEdit={canEdit} onClose={() => setModal(null)} onReset={resetDemo} />}
+      {modal === 'guide' && <GuideModal steps={guideSteps} canReset={session?.role === 'admin'} onClose={() => setModal(null)} onReset={resetDemo} />}
       <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite">{toast}</div>
     </div>
   );

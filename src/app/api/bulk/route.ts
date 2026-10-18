@@ -1,12 +1,12 @@
-import { badRequest, forbidden, getSession, json } from '@/lib/auth';
+import { badRequest, json, requireEditor } from '@/lib/auth';
 import { bulkAction } from '@/lib/candidates';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
-  const session = await getSession();
-  if (!session.canEdit) return forbidden('Operacje zbiorcze są dostępne tylko dla HR.');
+  const session = await requireEditor('Operacje zbiorcze są dostępne tylko dla HR.');
+  if (session instanceof Response) return session;
   const body = (await req.json().catch(() => null)) as { action?: string; ids?: unknown } | null;
   if (body?.action === 'reject-and-thank') {
     const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === 'string') : [];

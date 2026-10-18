@@ -1,4 +1,4 @@
-import { badRequest, forbidden, getSession, json, notFound } from '@/lib/auth';
+import { badRequest, json, notFound, requireEditor } from '@/lib/auth';
 import { getCandidate, getRow, sendTemplateEmail } from '@/lib/candidates';
 import { EMAIL_TEMPLATES, type EmailTemplate } from '@/lib/domain';
 
@@ -8,8 +8,8 @@ export const dynamic = 'force-dynamic';
 /** Sends one of the standard messages to the candidate (recorded only, unless SMTP is configured). */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await getSession();
-  if (!session.canEdit) return forbidden('Wysyłanie wiadomości jest dostępne tylko dla HR.');
+  const session = await requireEditor('Wysyłanie wiadomości jest dostępne tylko dla HR.');
+  if (session instanceof Response) return session;
   const row = getRow(session, id);
   if (!row) return notFound('Nie znaleziono zgłoszenia.');
   const body = (await req.json().catch(() => null)) as { template?: string } | null;
