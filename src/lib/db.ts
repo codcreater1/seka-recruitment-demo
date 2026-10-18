@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { EMAIL_TEMPLATES, statusLabel, type StatusId } from './domain';
+import { MISSING_SHORT, UNASSIGNED_CITY, UNKNOWN_POSITION, renderTemplate, statusLabel, type EmailTemplate, type MissingItem, type StatusId } from './domain';
 import { localDate } from './time';
 
 /** A positive whole number from the environment; a typo in a setting must not break the app. */
@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS candidates (
   rejection_sent INTEGER NOT NULL DEFAULT 0,
   needs_review INTEGER NOT NULL DEFAULT 0,
   duplicate_of TEXT,
-  vacancy_id TEXT
+  vacancy_id TEXT,
+  cv_state TEXT NOT NULL DEFAULT 'ok',
+  info_requested_at TEXT,
+  info_requested_items TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_candidates_city ON candidates(city);
 CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(email);
@@ -93,6 +96,12 @@ CREATE TABLE IF NOT EXISTS feedback (
   recommendation TEXT NOT NULL,
   comment TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT ''
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS cv_fts USING fts5(candidate_id UNINDEXED, name, position, body);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,6 +117,12 @@ function migrate(db: Database.Database) {
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
   if (!has('candidates', 'vacancy_id')) db.exec('ALTER TABLE candidates ADD COLUMN vacancy_id TEXT');
   if (!has('emails', 'attachment')) db.exec("ALTER TABLE emails ADD COLUMN attachment TEXT NOT NULL DEFAULT ''");
+  if (!has('candidates', 'cv_state')) {
+    db.exec("ALTER TABLE candidates ADD COLUMN cv_state TEXT NOT NULL DEFAULT 'ok'");
+    db.exec("UPDATE candidates SET cv_state = 'none' WHERE file_id IS NULL");
+  }
+  if (!has('candidates', 'info_requested_at')) db.exec('ALTER TABLE candidates ADD COLUMN info_requested_at TEXT');
+  if (!has('candidates', 'info_requested_items')) db.exec("ALTER TABLE candidates ADD COLUMN info_requested_items TEXT NOT NULL DEFAULT ''");
 }
 
 type SeedCandidate = {
@@ -135,9 +150,11 @@ function seedDemo(db: Database.Database) {
   const now = Date.now();
   const insC = db.prepare(`INSERT INTO candidates
     (id, name, email, phone, city, position, status, received_at, channel, from_addr, subject, city_basis, rodo,
-     file_id, file_name, file_size, rating, interview_at, rejection_sent, needs_review, duplicate_of, vacancy_id)
+     file_id, file_name, file_size, rating, interview_at, rejection_sent, needs_review, duplicate_of, vacancy_id,
+     info_requested_at, info_requested_items)
     VALUES (@id, @name, @email, @phone, @city, @position, @status, @received_at, 'E-mail', @email, @subject, @city_basis,
-     @rodo, @file_id, @file_name, @file_size, @rating, @interview_at, @rejection_sent, @needs_review, @duplicate_of, @vacancy_id)`);
+     @rodo, @file_id, @file_name, @file_size, @rating, @interview_at, @rejection_sent, @needs_review, @duplicate_of, @vacancy_id,
+     @info_requested_at, @info_requested_items)`);
   const insE = db.prepare('INSERT INTO events (candidate_id, at, actor, text) VALUES (?, ?, ?, ?)');
   const insN = db.prepare('INSERT INTO notes (candidate_id, author, text, created_at) VALUES (?, ?, ?, ?)');
   const insM = db.prepare(
@@ -186,6 +203,10 @@ function seedDemo(db: Database.Database) {
       const src = path.join(SEED_DIR, c.file);
       const size = fs.existsSync(src) ? fs.statSync(src).size : 0;
       if (size) fs.copyFileSync(src, path.join(FILES_DIR, `${c.id}.pdf`));
+      // like a live application: what is missing is asked for right away
+      const missingItems: MissingItem[] = [];
+      if (c.city === UNASSIGNED_CITY) missingItems.push('city');
+      if (c.position === UNKNOWN_POSITION) missingItems.push('position');
       let interviewAt: string | null = null;
       if (c.interview) {
         // the date as the company's calendar shows it, so "tomorrow" is tomorrow in Poland, not in UTC
@@ -199,10 +220,17 @@ function seedDemo(db: Database.Database) {
         interview_at: interviewAt, rejection_sent: c.status === 'rejected' ? 1 : 0,
         needs_review: c.needsReview ? 1 : 0, duplicate_of: c.duplicateOf ?? null,
         vacancy_id: vacancyFor.get(`${c.city}|${c.position}`) ?? null,
+        info_requested_at: missingItems.length ? new Date(received + 2 * 6e4).toISOString() : null,
+        info_requested_items: missingItems.join(','),
       });
       insE.run(c.id, new Date(received).toISOString(), 'system', 'Otrzymano zgłoszenie e-mailem');
       insE.run(c.id, new Date(received + 6e4).toISOString(), 'system', 'Utworzono profil kandydata (automatycznie z załącznika PDF)');
-      insE.run(c.id, new Date(received + 2 * 6e4).toISOString(), 'system', 'Wysłano potwierdzenie przyjęcia zgłoszenia (automatyczna odpowiedź, symulacja)');
+      insE.run(
+        c.id, new Date(received + 2 * 6e4).toISOString(), 'system',
+        missingItems.length
+          ? `Wysłano prośbę o uzupełnienie zgłoszenia: ${missingItems.map((m) => MISSING_SHORT[m]).join(', ')} (automatyczna odpowiedź, symulacja)`
+          : 'Wysłano potwierdzenie przyjęcia zgłoszenia (automatyczna odpowiedź, symulacja)',
+      );
       if (c.duplicateOf) {
         insE.run(c.id, new Date(received + 3 * 6e4).toISOString(), 'system', 'Wykryto możliwy duplikat: ten adres e-mail ma już profil w systemie');
       }
@@ -215,12 +243,11 @@ function seedDemo(db: Database.Database) {
         insE.run(c.id, at(20 + (PATHS.rejected.length) * 30 + 1), 'Agnieszka (HR)', 'Wysłano podziękowanie za udział w rekrutacji (symulacja)');
       }
       if (c.note) insN.run(c.id, 'Agnieszka (HR)', c.note, at(24));
-      const mail = (template: 'ack' | 'rejection' | 'invite', when: string, actor: string) => {
-        const t = EMAIL_TEMPLATES[template];
-        insM.run(c.id, when, template, c.email, t.subject, t.body({ position: c.position, interviewAt }), actor,
-          template === 'invite' ? 'rozmowa.ics' : '');
+      const mail = (template: EmailTemplate, when: string, actor: string) => {
+        const t = renderTemplate(template, { position: c.position, interviewAt, missing: missingItems });
+        insM.run(c.id, when, template, c.email, t.subject, t.body, actor, template === 'invite' ? 'rozmowa.ics' : '');
       };
-      mail('ack', new Date(received + 2 * 6e4).toISOString(), 'system');
+      mail(missingItems.length ? 'missing' : 'ack', new Date(received + 2 * 6e4).toISOString(), 'system');
       if (c.status === 'rejected') mail('rejection', at(20 + PATHS.rejected.length * 30 + 1), 'Agnieszka (HR)');
       if (c.status === 'interview' && interviewAt) mail('invite', at(20 + 2 * 30 + 2), 'Agnieszka (HR)');
 

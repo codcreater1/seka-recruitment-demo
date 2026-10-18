@@ -212,6 +212,34 @@ def build_cv_pdf(path, name, city, pos, years, i, rodo, future_consent=False):
     doc.build(story)
 
 
+def build_generic_cv(path, name):
+    """A CV that says nothing about a city or a position: the application needs a request for that."""
+    h1 = ParagraphStyle("h1", fontName="CV-Bold", fontSize=22, leading=26, textColor=colors.HexColor("#14201B"))
+    base = ParagraphStyle("base", fontName="CV", fontSize=10, leading=14)
+    small = ParagraphStyle("small", parent=base, fontSize=9, leading=12, textColor=colors.HexColor("#555555"))
+    sec = ParagraphStyle("sec", fontName="CV-Bold", fontSize=10, leading=14, textColor=colors.HexColor("#1D6A4D"), spaceBefore=12, spaceAfter=4)
+    bullet = ParagraphStyle("bullet", parent=base, leftIndent=12, bulletIndent=2)
+    story = [
+        Paragraph("Curriculum Vitae", small),
+        Paragraph(name, h1),
+        Spacer(1, 6),
+        Paragraph("E-mail: %s@example.com" % slug(name), base),
+        Paragraph("Tel.: +48 512 345 678", base),
+        Paragraph("DOŚWIADCZENIE ZAWODOWE", sec),
+        Paragraph("<b>Specjalista ds. obsługi klienta</b>, Firma Handlowa Alfa", base),
+        Paragraph("2021 – obecnie", small),
+        Paragraph("Obsługa zapytań klientów i wsparcie sprzedaży", bullet, bulletText="•"),
+        Paragraph("Przygotowywanie ofert i zestawień", bullet, bulletText="•"),
+        Paragraph("WYKSZTAŁCENIE", sec),
+        Paragraph("<b>Ekonomia</b>, studia licencjackie", base),
+        Paragraph("UMIEJĘTNOŚCI", sec),
+        Paragraph("MS Office, język angielski B2, komunikacja z klientem", base),
+    ]
+    doc = SimpleDocTemplate(path, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm, bottomMargin=18 * mm,
+                            title="CV " + name, author=name)
+    doc.build(story)
+
+
 def make_eml(path, name, subject, pdf_path, hours_ago):
     msg = EmailMessage()
     msg["From"] = formataddr((name, slug(name) + "@example.com"))
@@ -284,6 +312,16 @@ def main():
             "name": name, "file": "incoming/" + fname, "downloadName": fname, "kind": kind,
             "from": slug(name) + "@example.com", "subject": subject,
         })
+    # incomplete applications: the system asks the candidate for what is missing
+    out["incoming"].append({
+        "name": "Marek Bezcv", "file": "incoming/brak-zalacznika", "downloadName": "", "kind": "nocv",
+        "from": "Marek Bezcv <marek.bezcv@example.com>", "subject": "Aplikacja – Technik laboratoryjny (Kraków)",
+    })
+    build_generic_cv(os.path.join(IN_DIR, "CV_dorota_bezmiasta.pdf"), "Dorota Bezmiasta")
+    out["incoming"].append({
+        "name": "Dorota Bezmiasta", "file": "incoming/CV_dorota_bezmiasta.pdf", "downloadName": "CV_dorota_bezmiasta.pdf", "kind": "nocity",
+        "from": "dorota.bezmiasta@example.com", "subject": "Aplikacja o pracę",
+    })
     with open(os.path.join(SEED_DIR, "seed.json"), "w", encoding="utf-8") as fh:
         json.dump(out, fh, ensure_ascii=False, indent=2)
     print("generated %d CVs, %d incoming samples" % (len(out["candidates"]), len(out["incoming"])))

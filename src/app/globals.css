@@ -635,3 +635,23 @@ table.audit th { font-size: 0.6875rem; font-weight: 700; letter-spacing: .08em; 
 .whoami { display: grid; line-height: 1.35; }
 .whoami strong { font-size: 0.875rem; }
 .whoami small { color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
+
+/* ---------- attach a CV to an incomplete application ---------- */
+.attach { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 1rem; }
+
+/* ---------- administration ---------- */
+.admin { display: grid; gap: 1.125rem; max-width: 64rem; }
+.admin .panel { padding: 1.25rem 1.375rem; }
+.admin .panel > .hint { margin-bottom: 0.5rem; }
+.toggles { display: grid; gap: 0.75rem; margin: 0.875rem 0 0.5rem; }
+.tpl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 1.125rem 0 0.75rem; }
+.tpl-head label { font-size: 0.8125rem; font-weight: 600; }
+.tpl-edit { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.tpl-edit textarea, .tpl-edit input { width: 100%; }
+.tpl-preview { padding: 0.875rem 1rem; border-radius: 0.875rem; background: var(--surface-2); min-width: 0; }
+.tpl-preview pre { margin: 0.5rem 0 0; white-space: pre-wrap; font: inherit; font-size: 0.8125rem; overflow-wrap: anywhere; }
+.retention { display: grid; gap: 0.75rem; max-width: 30rem; justify-items: start; }
+.retention .field { width: 100%; }
+.retention input { width: 7rem; }
+.matrix th:not(:first-child), .matrix td:not(:first-child) { white-space: normal; }
+@media (max-width: 899px) { .tpl-edit { grid-template-columns: minmax(0, 1fr); } }

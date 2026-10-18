@@ -528,6 +528,22 @@
       "kind": "eml",
       "from": "oliwia.bielecka@example.com",
       "subject": "Aplikacja – Księgowy (Warszawa)"
+    },
+    {
+      "name": "Marek Bezcv",
+      "file": "incoming/brak-zalacznika",
+      "downloadName": "",
+      "kind": "nocv",
+      "from": "Marek Bezcv <marek.bezcv@example.com>",
+      "subject": "Aplikacja – Technik laboratoryjny (Kraków)"
+    },
+    {
+      "name": "Dorota Bezmiasta",
+      "file": "incoming/CV_dorota_bezmiasta.pdf",
+      "downloadName": "CV_dorota_bezmiasta.pdf",
+      "kind": "nocity",
+      "from": "dorota.bezmiasta@example.com",
+      "subject": "Aplikacja o pracę"
     }
   ]
 }

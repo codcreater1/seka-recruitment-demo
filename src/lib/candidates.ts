@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import { simpleParser } from 'mailparser';
-import { addEvent, audit, filePath, getDb, newId, nowIso, FILES_DIR, POOL_RETENTION_MONTHS, RETENTION_MONTHS } from './db';
+import { addEvent, audit, filePath, getDb, newId, nowIso, FILES_DIR } from './db';
 import {
-  EMAIL_TEMPLATES,
+  EMAIL_TEMPLATE_LABEL,
+  MISSING_SHORT,
   UNASSIGNED_CITY,
   UNKNOWN_POSITION,
   statusLabel,
@@ -11,6 +12,7 @@ import {
   type EmailDto,
   type EmailTemplate,
   type FeedbackDto,
+  type MissingItem,
   type Recommendation,
   type Session,
   type StatsDto,
@@ -22,6 +24,7 @@ import { analyzeCv } from './analyze';
 import { deliver, type MailAttachment } from './mailer';
 import { buildIcs } from './ics';
 import { indexCandidate, removeFromIndex } from './search';
+import { getSettings, writeTemplate } from './settings';
 import { isLocalDateTime, localNow } from './time';
 
 export type Row = {
@@ -30,13 +33,28 @@ export type Row = {
   file_id: string | null; file_name: string | null; file_size: number | null; raw_text: string;
   rating: number | null; interview_at: string | null; rejection_sent: number; needs_review: number; duplicate_of: string | null;
   vacancy_id: string | null;
+  /** ok = readable CV, none = no file came with the application, unreadable = a file that cannot be read. */
+  cv_state: 'ok' | 'none' | 'unreadable';
+  info_requested_at: string | null;
+  info_requested_items: string;
 };
 
 /** Profiles with consent for future recruitments may be kept longer than ordinary applications. */
 function retention(r: Pick<Row, 'received_at' | 'status' | 'rodo'>) {
+  const { retentionMonths, poolRetentionMonths } = getSettings();
   const due = new Date(r.received_at);
-  due.setMonth(due.getMonth() + (r.rodo === 2 ? POOL_RETENTION_MONTHS : RETENTION_MONTHS));
+  due.setMonth(due.getMonth() + (r.rodo === 2 ? poolRetentionMonths : retentionMonths));
   return { retentionDate: due.toISOString(), retentionDue: r.status !== 'hired' && due.getTime() < Date.now() };
+}
+
+/** What an application lacks. The candidate is asked for these items. */
+export function computeMissing(r: Pick<Row, 'file_id' | 'cv_state' | 'city' | 'position'>): MissingItem[] {
+  const out: MissingItem[] = [];
+  if (!r.file_id || r.cv_state === 'none') out.push('cv');
+  else if (r.cv_state === 'unreadable') out.push('cv_unreadable');
+  if (r.city === UNASSIGNED_CITY) out.push('city');
+  if (r.position === UNKNOWN_POSITION) out.push('position');
+  return out;
 }
 
 function toItem(r: Row): CandidateListItem {
@@ -45,6 +63,7 @@ function toItem(r: Row): CandidateListItem {
     receivedAt: r.received_at, rating: r.rating, interviewAt: r.interview_at, needsReview: !!r.needs_review,
     duplicateOf: r.duplicate_of, retentionDue: retention(r).retentionDue,
     rejectionSent: !!r.rejection_sent, consentFuture: r.rodo === 2, vacancyId: r.vacancy_id,
+    missing: computeMissing(r), infoRequestedAt: r.info_requested_at,
   };
 }
 
@@ -95,24 +114,37 @@ export async function getCandidate(s: Session, id: string): Promise<CandidateDet
     rodo: row.rodo, file: row.file_id ? { name: row.file_name || 'CV.pdf', size: row.file_size || 0 } : null,
     rawText: row.raw_text, retentionDate: ret.retentionDate, notes, events, emails,
     profile: analyzeCv(row.raw_text), vacancy, feedback,
+    rejectionPreview: writeTemplate('rejection', { position: row.position }).body,
   };
 }
 
 /** Sends (or, without SMTP, only records) one of the standard messages and logs it on the profile. */
-export async function sendTemplateEmail(row: Row, template: EmailTemplate, actor: string) {
-  const t = EMAIL_TEMPLATES[template];
-  const body = t.body({ position: row.position, interviewAt: row.interview_at });
+export async function sendTemplateEmail(row: Row, template: EmailTemplate, actor: string, extra: { missing?: MissingItem[] } = {}) {
+  const t = writeTemplate(template, { position: row.position, interviewAt: row.interview_at, missing: extra.missing });
+  const label = EMAIL_TEMPLATE_LABEL[template];
   const attachments: MailAttachment[] = [];
   const ics = template === 'invite' ? interviewIcs(row) : null;
   if (ics) attachments.push({ filename: 'rozmowa.ics', content: ics, contentType: 'text/calendar; charset=utf-8; method=PUBLISH' });
-  const res = await deliver({ to: row.email, subject: t.subject, text: body, attachments });
+  const res = await deliver({ to: row.email, subject: t.subject, text: t.body, attachments });
   getDb()
     .prepare('INSERT INTO emails (candidate_id, at, template, to_addr, subject, body, status, actor, error, attachment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(row.id, nowIso(), template, row.email, t.subject, body, res.status, actor, res.error, attachments.map((a) => a.filename).join(', '));
+    .run(row.id, nowIso(), template, row.email, t.subject, t.body, res.status, actor, res.error, attachments.map((a) => a.filename).join(', '));
   const how = res.status === 'sent' ? 'wysłano' : res.status === 'simulated' ? 'symulacja' : `błąd wysyłki: ${res.error}`;
-  addEvent(row.id, actor, `${t.label} (${how})`);
+  const what = extra.missing?.length ? `: ${extra.missing.map((m) => MISSING_SHORT[m]).join(', ')}` : '';
+  addEvent(row.id, actor, `${label}${what} (${how})`);
   if (template === 'rejection' && res.status !== 'failed') {
     getDb().prepare('UPDATE candidates SET rejection_sent = 1 WHERE id = ?').run(row.id);
+  }
+  return res;
+}
+
+/** Asks the candidate for what the application lacks, and remembers when and for what. */
+export async function requestMissingInfo(row: Row, actor: string) {
+  const missing = computeMissing(row);
+  if (!missing.length || !row.email) return null;
+  const res = await sendTemplateEmail(row, 'missing', actor, { missing });
+  if (res.status !== 'failed') {
+    getDb().prepare('UPDATE candidates SET info_requested_at = ?, info_requested_items = ? WHERE id = ?').run(nowIso(), missing.join(','), row.id);
   }
   return res;
 }
@@ -128,17 +160,139 @@ export type IngestInput = {
   receivedAt?: string;
   channel: 'E-mail' | 'Wgrano ręcznie';
   actor: string;
-  /** Send the acknowledgement e-mail. Only for live intake, never when importing old messages. */
+  /** Send the automatic reply (acknowledgement, or the request for missing data). Only for live intake, never for old messages. */
   autoAck?: boolean;
   /** Extra text for the first history entry, e.g. "import pliku .eml". */
   origin?: string;
 };
 
+export type IngestResult = {
+  id: string;
+  needsReview: boolean;
+  /** What the application lacks; the candidate is asked for it. */
+  missing: MissingItem[];
+  /** The request for the missing data was sent (or recorded) now. */
+  infoRequested: boolean;
+  /** The message was the answer to such a request: it completed an existing profile instead of creating a new one. */
+  merged: boolean;
+};
+
+type CvRead = { rawText: string; parsed: ParsedCv | null; cvState: Row['cv_state'] };
+
+async function readCv(buffer: Uint8Array | undefined): Promise<CvRead> {
+  if (!buffer) return { rawText: '', parsed: null, cvState: 'none' };
+  let rawText = '';
+  try {
+    rawText = (await extractPdfText(buffer)).slice(0, MAX_CV_TEXT);
+  } catch {
+    rawText = '';
+  }
+  return rawText ? { rawText, parsed: parseCv(rawText), cvState: 'ok' } : { rawText: '', parsed: null, cvState: 'unreadable' };
+}
+
+/** The profile of someone who was asked to complete the application and has not done so yet. */
+function findWaitingProfile(email: string): Row | undefined {
+  const rows = getDb()
+    .prepare('SELECT * FROM candidates WHERE lower(email) = lower(?) AND info_requested_at IS NOT NULL ORDER BY received_at DESC LIMIT 5')
+    .all(email) as Row[];
+  return rows.find((r) => computeMissing(r).length > 0);
+}
+
+/**
+ * Fills in what an existing profile lacks from a new message or file: a CV replaces a missing or unreadable one
+ * (never a good one), the city and position are taken only where they are still unknown. Nothing else is changed.
+ */
+async function applyCompletion(
+  row: Row,
+  input: { buffer?: Uint8Array; fileName?: string; subject: string; actor: string; via: string },
+): Promise<{ changes: string[]; row: Row }> {
+  const db = getDb();
+  const cv = await readCv(input.buffer);
+  const set: string[] = [];
+  const args: unknown[] = [];
+  const changes: string[] = [];
+  let city = row.city;
+  let position = row.position;
+  let name = row.name;
+  let rawText = row.raw_text;
+
+  if (input.buffer && row.cv_state !== 'ok') {
+    fs.mkdirSync(FILES_DIR, { recursive: true });
+    fs.writeFileSync(filePath(row.id), input.buffer);
+    set.push('file_id = ?', 'file_name = ?', 'file_size = ?', 'raw_text = ?', 'cv_state = ?');
+    args.push(row.id, input.fileName || 'CV.pdf', input.buffer.byteLength, cv.rawText, cv.cvState);
+    rawText = cv.rawText;
+    changes.push(cv.cvState === 'ok' ? 'dodano CV' : 'dodano plik CV (nadal nie da się go odczytać)');
+  }
+  if (row.city === UNASSIGNED_CITY) {
+    const found = detectCity(input.subject) || cv.parsed?.city || '';
+    if (found) {
+      city = found;
+      set.push('city = ?', 'city_basis = ?');
+      args.push(found, 'uzupełnienia od kandydata');
+      changes.push(`ustalono miasto: ${found}`);
+    }
+  }
+  if (row.position === UNKNOWN_POSITION) {
+    const found = detectPosition([input.subject]) || cv.parsed?.position || '';
+    if (found) {
+      position = found;
+      set.push('position = ?');
+      args.push(found);
+      changes.push(`ustalono stanowisko: ${found}`);
+    }
+  }
+  if (name === 'Nieznany kandydat' && cv.parsed?.name) {
+    name = cv.parsed.name;
+    set.push('name = ?');
+    args.push(name);
+    changes.push('odczytano imię i nazwisko');
+  }
+  if (!row.phone && cv.parsed?.phone) {
+    set.push('phone = ?');
+    args.push(cv.parsed.phone);
+  }
+  if (row.rodo === 0 && cv.parsed && cv.parsed.rodo > 0) {
+    set.push('rodo = ?');
+    args.push(cv.parsed.rodo);
+  }
+  if (!row.vacancy_id && city !== UNASSIGNED_CITY && position !== UNKNOWN_POSITION) {
+    const open = db.prepare("SELECT id FROM vacancies WHERE city = ? AND position = ? AND status = 'open'").all(city, position) as { id: string }[];
+    if (open.length === 1) {
+      set.push('vacancy_id = ?');
+      args.push(open[0].id);
+      changes.push(`przypisano do ogłoszenia: ${position} (${city})`);
+    }
+  }
+  if (set.length) {
+    db.prepare(`UPDATE candidates SET ${set.join(', ')} WHERE id = ?`).run(...args, row.id);
+    indexCandidate(row.id, name, position, rawText);
+  }
+  let fresh = db.prepare('SELECT * FROM candidates WHERE id = ?').get(row.id) as Row;
+  const still = computeMissing(fresh);
+  if (row.needs_review && !still.length && fresh.name !== 'Nieznany kandydat' && fresh.email) {
+    db.prepare('UPDATE candidates SET needs_review = 0 WHERE id = ?').run(row.id);
+    fresh = { ...fresh, needs_review: 0 };
+  }
+  addEvent(
+    row.id,
+    input.actor,
+    changes.length
+      ? `Uzupełnienie zgłoszenia (${input.via}): ${changes.join(', ')}`
+      : `Wiadomość od kandydata (${input.via}) nie zawierała brakujących danych`,
+  );
+  if (changes.length && !still.length) addEvent(row.id, 'system', 'Zgłoszenie jest kompletne');
+  else if (still.length) addEvent(row.id, 'system', `Nadal brakuje: ${still.map((m) => MISSING_SHORT[m]).join(', ')}`);
+  return { changes, row: fresh };
+}
+
 /**
  * Creates a candidate profile from an incoming application. Used by the e-mail webhook,
  * the manual upload and the demo simulation, so all three behave the same way.
+ * When the application lacks something obvious (no CV, an unreadable CV, no city, no position) the candidate
+ * gets a request for it, and the answer of that candidate later completes the same profile.
  */
-export async function ingestApplication(rawInput: IngestInput): Promise<{ id: string; needsReview: boolean }> {
+export async function ingestApplication(rawInput: IngestInput): Promise<IngestResult> {
   // a mail header or a file name from outside is never trusted to be short
   const input: IngestInput = {
     ...rawInput,
@@ -147,19 +301,18 @@ export async function ingestApplication(rawInput: IngestInput): Promise<{ id: st
     fileName: rawInput.fileName?.slice(0, 200),
   };
   const db = getDb();
-  let rawText = '';
-  let parsed: ParsedCv | null = null;
-  if (input.buffer) {
-    try {
-      rawText = (await extractPdfText(input.buffer)).slice(0, MAX_CV_TEXT);
-    } catch {
-      rawText = '';
-    }
-    if (rawText) parsed = parseCv(rawText);
-  }
+  const { rawText, parsed, cvState } = await readCv(input.buffer);
   const sender = parseSender(input.from);
   const name = parsed?.name || sender.name || 'Nieznany kandydat';
   const email = parsed?.email || sender.address;
+
+  // the answer to a request for missing data completes that profile
+  const waiting = email && input.channel === 'E-mail' ? findWaitingProfile(email) : undefined;
+  if (waiting) {
+    const done = await applyCompletion(waiting, { buffer: input.buffer, fileName: input.fileName, subject: input.subject, actor: 'system', via: 'e-mail' });
+    audit(input.actor, 'ingest-reply', `Uzupełnienie od kandydata: ${waiting.name} (${done.row.city})`);
+    return { id: waiting.id, needsReview: !!done.row.needs_review, missing: computeMissing(done.row), infoRequested: false, merged: true };
+  }
 
   let city = detectCity(input.subject);
   let cityBasis = city ? 'tytułu wiadomości' : '';
@@ -191,16 +344,23 @@ export async function ingestApplication(rawInput: IngestInput): Promise<{ id: st
   const run = db.transaction(() => {
     db.prepare(`INSERT INTO candidates
       (id, name, email, phone, city, position, status, received_at, channel, from_addr, subject, city_basis, rodo,
-       file_id, file_name, file_size, raw_text, needs_review, duplicate_of)
-      VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+       file_id, file_name, file_size, raw_text, needs_review, duplicate_of, cv_state)
+      VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id, name, email, parsed?.phone || '', city, position, receivedAt, input.channel, sender.address || email,
       input.subject, cityBasis, parsed?.rodo ?? 0, fileId, input.fileName || (fileId ? 'CV.pdf' : null),
-      input.buffer ? input.buffer.byteLength : null, rawText, needsReview ? 1 : 0, dup?.id ?? null,
+      input.buffer ? input.buffer.byteLength : null, rawText, needsReview ? 1 : 0, dup?.id ?? null, cvState,
     );
     const ev = (actor: string, text: string) => addEvent(id, actor, text);
     const first = input.channel === 'E-mail' ? 'Otrzymano zgłoszenie e-mailem' : `Wgrano CV ręcznie (${input.actor})`;
     ev('system', input.origin ? `${first}, ${input.origin}` : first);
-    ev('system', parsed ? 'Utworzono profil kandydata (automatycznie z załącznika PDF)' : 'Utworzono profil z danych nadawcy (brak odczytanego tekstu PDF)');
+    ev(
+      'system',
+      parsed
+        ? 'Utworzono profil kandydata (automatycznie z załącznika PDF)'
+        : cvState === 'none'
+          ? 'Utworzono profil z danych nadawcy (wiadomość bez załącznika PDF)'
+          : 'Utworzono profil z danych nadawcy (nie udało się odczytać pliku CV)',
+    );
     if (dup) ev('system', 'Wykryto możliwy duplikat: ten adres e-mail ma już profil w systemie');
     audit(input.actor, 'ingest', `${input.channel}: ${name} (${city})`);
     indexCandidate(id, name, position, rawText);
@@ -214,11 +374,29 @@ export async function ingestApplication(rawInput: IngestInput): Promise<{ id: st
   });
   run();
 
+  const row = db.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as Row;
+  const missing = computeMissing(row);
+  let infoRequested = false;
   if (input.autoAck && email) {
-    const row = db.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as Row;
-    await sendTemplateEmail(row, 'ack', 'system');
+    const settings = getSettings();
+    if (missing.length && settings.autoMissing) {
+      const res = await requestMissingInfo(row, 'system');
+      infoRequested = !!res && res.status !== 'failed';
+    } else if (settings.autoAck) {
+      await sendTemplateEmail(row, 'ack', 'system');
+    }
   }
-  return { id, needsReview };
+  return { id, needsReview, missing, infoRequested, merged: false };
+}
+
+/** HR attaches the CV the candidate sent after the request (or by other means) to the existing profile. */
+export async function attachCv(s: Session, id: string, buffer: Uint8Array, fileName: string) {
+  const row = getRow(s, id);
+  if (!row) return { error: 'not-found' as const };
+  if (row.cv_state === 'ok') return { error: 'has-cv' as const };
+  const done = await applyCompletion(row, { buffer, fileName: fileName.slice(0, 200), subject: '', actor: s.name, via: 'ręcznie' });
+  audit(s.name, 'attach-cv', `Dołączono CV: ${row.name} (${done.row.city})`);
+  return { changes: done.changes };
 }
 
 /** A saved .eml file: sender, subject and date come from the message, the CV from its PDF attachment. */
@@ -366,6 +544,7 @@ export function getStats(s: Session): StatsDto {
       unsentRejections: rows.filter((r) => r.status === 'rejected' && !r.rejection_sent).length,
       retentionDue: rows.filter((r) => retention(r).retentionDue).length,
       emptyVacancies: emptyVacancies,
+      missingInfo: rows.filter((r) => computeMissing(r).length > 0).length,
     },
   };
 }

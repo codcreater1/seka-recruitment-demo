@@ -3,7 +3,8 @@
 Demo of a recruitment management system for SEKA (ATA student project).
 HR receives applications as e-mails with a PDF CV. The system creates a candidate profile from each
 application, groups applications by branch city and tracks the status of every candidate.
-Branch managers get access to the candidates of their own city only.
+Branch managers get access to the candidates of their own city only. Sign-in is meant to go through Microsoft Entra ID
+(SSO); three roles: administrator, HR manager (whole company), branch manager (one city).
 
 - UI language: Polish
 - Look: logo, colours and typeface follow the SEKA website (blue #1b3985, Plus Jakarta Sans). The logo file
@@ -13,7 +14,7 @@ Branch managers get access to the candidates of their own city only.
   below 1100 px. Light and dark theme (follows the system) and text size S / M / L, both in the user menu. The text
   size defaults to M on screens with display scaling of 125% or more, and everything is sized in rem.
 - Data: fictional (generated, see `scripts/generate_seed.py`)
-- Authentication: demo role switcher (target: Microsoft Entra ID SSO, see "Authentication")
+- Authentication: sign-in page with demo accounts, or Microsoft Entra ID (`AUTH_MODE=entra`, see [`docs/entra-id.md`](docs/entra-id.md))
 
 ## What works
 
@@ -34,8 +35,10 @@ Branch managers get access to the candidates of their own city only.
 | PDF reading | Server-side text extraction; name, e-mail, phone, city and position are detected; scans are flagged "Do sprawdzenia" |
 | City logic | From the e-mail subject, otherwise from the CV address; unknown goes to "Do przypisania" |
 | Correspondence | Acknowledgement on intake, interview invitation, thank-you after rejection; logged on the profile; bulk "reject and thank" |
+| Incomplete applications | No CV, an unreadable CV, no city or no position: the candidate gets an e-mail asking for exactly that (switchable), the profile is marked "Czeka na uzupełnienie", and the answer (the same sender) completes the same profile. HR can ask again or attach the CV by hand. `/api/ingest` returns the list of gaps (`missing`) so Power Automate can send the mail itself instead |
 | Duplicates | Same e-mail address as an existing profile is flagged |
-| Roles | HR sees everything; a branch manager sees only the own city, can comment, cannot change anything else (enforced on the server) |
+| Roles | **Administrator**: everything, the settings, the demo reset. **HR manager**: all cities, all candidate operations. **Branch manager**: only the own city, can read, comment and add opinions. Enforced on the server for every request |
+| Administration | Administrator only: the permission matrix, the accounts with their Entra ID role names, which automatic messages are sent, the wording of every message (with a live preview), retention periods, integration status |
 | GDPR | Export a candidate as JSON, delete a profile with its file, retention warning and bulk clean-up, audit log |
 | Fairness | No automatic scoring or ranking of candidates; ratings are entered by a person |
 
@@ -64,6 +67,9 @@ type check, build, tests and a Docker smoke test on every push.
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `AUTH_MODE` | `demo` | `demo`: demo accounts on the sign-in page (no passwords, so protect public links with `DEMO_PASSWORD`). `entra`: Microsoft Entra ID |
+| `SESSION_SECRET` | generated, kept in the data volume | Signs the session cookie. Set a long random value when you run several copies |
+| `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET`, `APP_URL`, `ENTRA_ROLE_MAP` | empty | Microsoft Entra ID, see [`docs/entra-id.md`](docs/entra-id.md) |
 | `DEMO_PASSWORD` | empty (no gate) | Password gate (HTTP Basic auth, any user name) for a public demo |
 | `INGEST_API_KEY` | empty (endpoint disabled) | Secret for `POST /api/ingest` |
 | `RETENTION_MONTHS` | `6` | Age after which a profile is flagged as past retention |
@@ -78,15 +84,15 @@ type check, build, tests and a Docker smoke test on every push.
 1. New resource, source: this GitHub repository, build pack **Dockerfile**.
 2. Port: `3000`. Health check path: `/api/health`.
 3. Persistent storage: add a volume with destination **`/data`** (database and CVs live there).
-4. Environment variables: `DEMO_PASSWORD` (the demo has no sign-in, set a password before sharing the link) and, for the e-mail intake, `INGEST_API_KEY`.
+4. Environment variables: `DEMO_PASSWORD` (demo accounts have no passwords, so set one before sharing the link) or `AUTH_MODE=entra` with the `ENTRA_*` values, and, for the e-mail intake, `INGEST_API_KEY`.
    Serve the app over HTTPS (assign a domain in Coolify) so the password is not sent in clear text.
 5. Deploy. On first start the database is created and filled with the demo candidates.
 
-To try the image locally: `docker compose up --build`.
+To try the image locally: `docker compose up --build`. Other ways to show the demo when Coolify is not available (tunnel, cloud host, a recording) are in [`docs/deployment.md`](docs/deployment.md).
 
 ### Before the demo
 
-- Open the menu (top right) → "Przewodnik po demo" → "Przywróć dane demonstracyjne". The dates of the sample data are
+- Sign in as the administrator (login page → "Zaloguj przez Microsoft" → "Administrator systemu"), open the menu (top right) → "Przewodnik po demo" → "Przywróć dane demonstracyjne". The dates of the sample data are
   relative to the first start, so a reset right before presenting makes "2 godz. temu" and the interview calendar current.
 - The walkthrough with talking points is in [`docs/demo-script.md`](docs/demo-script.md).
 - Every screen has its own address (`/#/lista`, `/#/tablica`, `/#/kalendarz`, `/#/ogloszenia`, `/#/pulpit`, and
@@ -121,15 +127,22 @@ curl -X POST https://<your-host>/api/ingest \
   }'
 ```
 
-Response: `201 { "id": "...", "needsReview": false, "attachmentAccepted": true }`.
-Mails without a PDF still create a profile (from the sender data) flagged for review.
-A live intake sends the acknowledgement e-mail to the candidate (recorded only, unless SMTP is configured).
+Response: `201 { "id": "...", "needsReview": false, "missing": [], "infoRequested": false, "merged": false, "attachmentAccepted": true }`.
+
+- Mails without a PDF still create a profile (from the sender data) flagged for review.
+- `missing` lists what the application lacks: `cv`, `cv_unreadable`, `city`, `position`. With the default settings the
+  candidate is then asked for it by e-mail (`infoRequested: true`); a complete application gets the acknowledgement. A flow
+  that prefers to send the mail itself can switch the automatic request off in the administration screen and branch on `missing`.
+- A later mail from the same sender, while the first one is still incomplete, is the answer: it completes that profile
+  (`merged: true`, same `id`) and does not create a second one.
+- Messages are recorded on the profile, and sent only when SMTP is configured.
 
 ## Security notes
 
 What is in place:
 
-- Roles are enforced on the server for every endpoint (a manager cannot read or change another city by guessing ids).
+- Every endpoint needs a signed-in user and checks the role on the server (a manager cannot read or change another city
+  by guessing ids; only the administrator reaches the settings).
 - Optional password gate (`DEMO_PASSWORD`) and API key for intake (`INGEST_API_KEY`), both compared in constant time,
   with a limit of ten wrong attempts per minute per address (in memory, one process).
 - Security headers on every response (`nosniff`, frame protection, referrer and permissions policy), the role cookie is
@@ -146,10 +159,16 @@ is a major upgrade (Next.js 16) that is not worth the risk before the demo.
 
 ## Authentication
 
-The demo has no login: the role is picked in the header and kept in a cookie. Every API route reads the role
-through `getSession()` in `src/lib/auth.ts`, so permissions are already enforced on the server. A real
-deployment replaces `getSession()` with Microsoft Entra ID (for example Auth.js with the `microsoft-entra-id`
-provider) and maps groups or app roles to "HR" and "manager of city X".
+Every page and API route needs a session (a signed cookie). Two ways to get one, both ending in the same cookie:
+
+- **Demo** (`AUTH_MODE=demo`, default): the sign-in page offers demo accounts for every role and branch. There are no passwords,
+  so a public link needs `DEMO_PASSWORD` in front. The menu switches accounts without leaving the page.
+- **Microsoft Entra ID** (`AUTH_MODE=entra`): OpenID Connect code flow with PKCE and a verified ID token; roles from app roles
+  (`SEKA.Admin`, `SEKA.HR`, `SEKA.Branch.<city>`) or groups. Setup in [`docs/entra-id.md`](docs/entra-id.md). Tested against a
+  local identity provider; to be tried with SEKA's tenant.
+
+The prototype is Next.js and SQLite; SEKA's production stack is Laravel, Postgres and Docker. How each part maps is in
+[`docs/laravel-migration.md`](docs/laravel-migration.md).
 
 ## Repository layout
 
@@ -160,18 +179,18 @@ provider) and maps groups or app roles to "HR" and "manager of city X".
 | `src/lib` | Database, domain constants, PDF parsing and CV facts, intake, search, calendar files, mailer, auth |
 | `seed/` | Generated sample CVs (PDF), sample e-mails (`.eml`) and `seed.json` |
 | `scripts/generate_seed.py` | Regenerates the sample CVs (needs `reportlab`, `pypdfium2`) |
-| `tests/` | API tests (`node:test`): `api.test.mjs` (features, permissions, parsing) and `gate.test.mjs` (password gate, brute-force limits) |
-| `docs/` | Demo walkthrough for the presentation |
+| `tests/` | `node:test`: `api.test.mjs` (features, roles, parsing, settings), `gate.test.mjs` (password gate, brute-force limits), `entra.test.mjs` (Microsoft sign-in against a local identity provider) |
+| `docs/` | Demo walkthrough, Microsoft Entra ID setup, deployment options, Laravel migration map |
 | `prototype/` | First single-file prototype (browser storage only) |
 | `Dockerfile`, `docker-compose.yml` | Container build for Coolify or local use |
 
 ## Roadmap
 
-- [ ] Microsoft Entra ID sign-in
+- [ ] Try the Microsoft Entra ID sign-in against SEKA's tenant (implemented, tested locally)
+- [ ] Port to Laravel + Postgres (map in `docs/laravel-migration.md`)
 - [ ] Optional LLM extraction of CV fields (rule-based parsing is used now)
 - [ ] OCR for scanned CVs
 - [ ] Outlook `.msg` import (`.eml` works)
 - [ ] Several attachments per application (cover letter, certificates)
 - [ ] Merge duplicate profiles
 - [ ] Notifications to HR and managers (e-mail or Teams webhook)
-- [ ] Editable e-mail templates

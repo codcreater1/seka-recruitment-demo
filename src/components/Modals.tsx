@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, fmtDate } from './ui';
 
+const SAMPLE_HINT: Partial<Record<Sample['kind'], string>> = {
+  scan: 'skan bez warstwy tekstowej: system poprosi o czytelne CV',
+  eml: 'wiadomość .eml z załącznikiem PDF',
+  nocv: 'wiadomość bez załącznika: system poprosi o CV',
+  nocity: 'CV bez miasta i stanowiska: system poprosi o uzupełnienie',
+};
+
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function Overlay({ onClose, wide, label, children }: { onClose: () => void; wide?: boolean; label: string; children: ReactNode }) {
@@ -56,7 +63,7 @@ function Overlay({ onClose, wide, label, children }: { onClose: () => void; wide
   );
 }
 
-type Sample = { name: string; file: string; kind: 'text' | 'scan' | 'eml'; subject: string };
+type Sample = { name: string; file: string; kind: 'text' | 'scan' | 'eml' | 'nocv' | 'nocity'; subject: string };
 
 export function NewModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string, needsReview: boolean) => void }) {
   const [busy, setBusy] = useState(false);
@@ -158,7 +165,7 @@ export function NewModal({ onClose, onCreated }: { onClose: () => void; onCreate
             {samples.map((s) => (
               <button key={s.file} className="btn sample" type="button" disabled={busy} onClick={() => simulate(s.file)}>
                 <span>{s.name}</span>
-                <small>{s.kind === 'scan' ? 'skan bez warstwy tekstowej' : s.kind === 'eml' ? 'wiadomość .eml z załącznikiem PDF' : s.subject}</small>
+                <small>{SAMPLE_HINT[s.kind] ?? s.subject}</small>
               </button>
             ))}
           </div>

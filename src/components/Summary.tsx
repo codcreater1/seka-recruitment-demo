@@ -5,7 +5,7 @@ import { STATUSES, type StatsDto } from '@/lib/domain';
 import { STATUS_VAR } from './Chip';
 import { displayName, fmtInterview } from './ui';
 
-export type QuickFilter = 'review' | 'duplicates' | 'stale' | 'retention' | 'pool' | null;
+export type QuickFilter = 'review' | 'missing' | 'duplicates' | 'stale' | 'retention' | 'pool' | null;
 
 type Props = {
   stats: StatsDto | null;
@@ -106,6 +106,10 @@ export default function Summary({ stats, canEdit, anon, onVacancies, onOpenCandi
         <section className="panel">
           <h2>Wymaga uwagi</h2>
           <div className="attn">
+            <div className={`attn-row${a.missingInfo ? '' : ' zero'}`}>
+              <span><span className="num">{a.missingInfo}</span>Brakujące dane lub CV</span>
+              {a.missingInfo > 0 && <button className="btn small" type="button" onClick={() => onQuick('missing')}>Pokaż</button>}
+            </div>
             <div className={`attn-row${a.needsReview ? '' : ' zero'}`}>
               <span><span className="num">{a.needsReview}</span>Dane do sprawdzenia</span>
               {a.needsReview > 0 && <button className="btn small" type="button" onClick={() => onQuick('review')}>Pokaż</button>}

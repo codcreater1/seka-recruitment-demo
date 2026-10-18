@@ -68,7 +68,7 @@ export default function Calendar({ items, anon, onOpen }: Props) {
         </div>
       </div>
 
-      <div className="cal-grid">
+      <div className="cal-grid" role="region" aria-label="Tydzień rozmów" tabIndex={0}>
         {days.map((d, i) => {
           const k = dayKey(d);
           const todays = planned

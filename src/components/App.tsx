@@ -21,6 +21,7 @@ import Detail, { type FeedbackInput } from './Detail';
 import Board from './Board';
 import Calendar from './Calendar';
 import Vacancies from './Vacancies';
+import Admin from './Admin';
 import Summary, { type QuickFilter } from './Summary';
 import { Avatar, Chip, STATUS_VAR } from './Chip';
 import Icon, { type IconName } from './Icon';
@@ -28,12 +29,13 @@ import { AuditModal, GuideModal, IssuesModal, NewModal, type GuideStep } from '.
 
 type RoleOption = { id: string; label: string };
 type ModalKind = 'new' | 'issues' | 'audit' | 'guide' | null;
-type View = 'list' | 'board' | 'calendar' | 'vacancies' | 'summary';
+type View = 'list' | 'board' | 'calendar' | 'vacancies' | 'summary' | 'admin';
 
 const WEEK = 7 * 864e5;
 const ROLE_INITIALS = { admin: 'AD', hr: 'HR', manager: 'KO' } as const;
 const QUICK_LABEL: Record<Exclude<QuickFilter, null>, string> = {
   review: 'Do sprawdzenia',
+  missing: 'Brakujące dane',
   duplicates: 'Możliwe duplikaty',
   stale: 'Czekają ponad 7 dni',
   retention: 'Po terminie przechowywania',
@@ -45,15 +47,16 @@ const VIEW_LABEL: Record<View, string> = {
   calendar: 'Kalendarz',
   vacancies: 'Ogłoszenia',
   summary: 'Pulpit',
+  admin: 'Admin',
 };
 /** Address of every view (#/lista, #/tablica/<id> ...), so a refresh or a pasted link opens the same screen. */
-const VIEW_SLUG: Record<View, string> = { list: 'lista', board: 'tablica', calendar: 'kalendarz', vacancies: 'ogloszenia', summary: 'pulpit' };
+const VIEW_SLUG: Record<View, string> = { list: 'lista', board: 'tablica', calendar: 'kalendarz', vacancies: 'ogloszenia', summary: 'pulpit', admin: 'administracja' };
 
 function readAddress(): { view: View; id: string | null } {
   const parts = window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   const view = (Object.keys(VIEW_SLUG) as View[]).find((v) => VIEW_SLUG[v] === parts[0]) ?? 'list';
   const id = parts[1] && /^[A-Za-z0-9_-]{1,64}$/.test(parts[1]) ? parts[1] : null;
-  return { view, id: view === 'vacancies' || view === 'summary' ? null : id };
+  return { view, id: view === 'vacancies' || view === 'summary' || view === 'admin' ? null : id };
 }
 
 const ANON_KEY = 'panel-rekrutacji-anon';
@@ -63,13 +66,14 @@ type Theme = 'auto' | 'light' | 'dark';
 type Size = 's' | 'm' | 'l';
 const SIZE_LABEL: Record<Size, string> = { s: 'Mały', m: 'Średni', l: 'Duży' };
 const THEME_LABEL: Record<Theme, string> = { auto: 'Auto', light: 'Jasny', dark: 'Ciemny' };
-const VIEW_ICON: Record<View, IconName> = { list: 'list', board: 'board', calendar: 'calendar', vacancies: 'briefcase', summary: 'chart' };
+const VIEW_ICON: Record<View, IconName> = { list: 'list', board: 'board', calendar: 'calendar', vacancies: 'briefcase', summary: 'chart', admin: 'settings' };
 const VIEW_TITLE: Record<View, string> = {
   list: 'Zgłoszenia',
   board: 'Tablica statusów',
   calendar: 'Kalendarz rozmów',
   vacancies: 'Ogłoszenia',
   summary: 'Pulpit rekrutacji',
+  admin: 'Administracja',
 };
 
 export default function App() {
@@ -295,6 +299,7 @@ export default function App() {
       if (statusV !== 'all' && c.status !== statusV) return false;
       if (vacancyFilter && c.vacancyId !== vacancyFilter) return false;
       if (quick === 'review' && !c.needsReview) return false;
+      if (quick === 'missing' && !c.missing.length) return false;
       if (quick === 'duplicates' && !c.duplicateOf) return false;
       if (quick === 'stale' && !(c.status === 'new' && Date.now() - Date.parse(c.receivedAt) > WEEK)) return false;
       if (quick === 'retention' && !c.retentionDue) return false;
@@ -337,6 +342,12 @@ export default function App() {
   }, [items]);
 
   const canEdit = !!session?.canEdit;
+  const canConfigure = !!session?.canConfigure;
+
+  // the settings screen belongs to the administrator
+  useEffect(() => {
+    if (session && view === 'admin' && !session.canConfigure) setView('list');
+  }, [session, view]);
 
   const applyDetail = (d: CandidateDetail) => {
     setDetail(d);
@@ -409,6 +420,21 @@ export default function App() {
           ? 'Wiadomość zapisana (symulacja: SMTP nie jest skonfigurowany)'
           : 'Nie udało się wysłać wiadomości',
     );
+  };
+
+  const attachCv = async (file: File) => {
+    if (!selId) return false;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const data = await api<{ candidate: CandidateDetail; changes: string[] }>(`/api/candidates/${selId}/cv`, { method: 'POST', body: form });
+      applyDetail(data.candidate);
+      say(data.changes.length ? `CV dołączone: ${data.changes.join(', ')}` : 'CV dołączone');
+      return true;
+    } catch (e) {
+      say((e as Error).message);
+      return false;
+    }
   };
 
   const remove = async () => {
@@ -574,7 +600,9 @@ export default function App() {
     { title: 'Ogłoszenia i baza kandydatów', text: 'Zgłoszenia przypisane do ogłoszeń. Kandydaci ze zgodą na przyszłe rekrutacje trafiają do bazy.', cta: 'Pokaż', run: () => go('vacancies') },
     { title: 'Szukanie w treści CV', text: 'Wpisz „chromatografia”: znajdziesz kandydatów po umiejętności zapisanej w CV.', cta: 'Wypróbuj', run: () => { go('list'); setQ('chromatografia'); } },
     { title: 'Zgłoszenie z e-maila (.eml)', text: 'Wczytaj przykładową wiadomość: system tworzy profil i zapisuje potwierdzenie.', cta: 'Otwórz', run: () => setModal('new') },
+    { title: 'Brakujące dane', text: 'Wiadomość bez CV albo bez miasta: system sam prosi kandydata o uzupełnienie. Odpowiedź dopełnia ten sam profil.', cta: 'Otwórz', run: () => setModal('new') },
     { title: 'Widok kierownika oddziału', text: 'Kierownik widzi tylko swoje miasto i może dodać opinię po rozmowie.', cta: 'Przełącz', run: () => { void changeRole('mgr:Kraków'); } },
+    { title: 'Administracja (konto administratora)', text: 'Role i uprawnienia, treść wiadomości do kandydatów, okresy przechowywania danych i integracje.', cta: 'Przełącz', run: () => { void changeRole('admin').then(() => go('admin')); } },
     { title: 'Tryb anonimowy', text: 'Ukrywa imiona, e-maile i podgląd CV, żeby oceniać bez uprzedzeń.', cta: 'Włącz', run: () => { toggleAnon(true); go('list'); } },
   ];
 
@@ -592,6 +620,7 @@ export default function App() {
         onNote={addNote}
         onFeedback={addFeedback}
         onSendEmail={sendEmail}
+        onAttachCv={attachCv}
         onDelete={remove}
         onOpen={(id) => setSelId(id)}
       />
@@ -611,7 +640,9 @@ export default function App() {
 
   const countLabel = `${visible.length} z ${total}`;
   const subtitle =
-    view === 'summary'
+    view === 'admin'
+      ? 'Role, wiadomości do kandydatów, okresy przechowywania i integracje'
+      : view === 'summary'
       ? 'Przegląd rekrutacji i spraw wymagających uwagi'
       : view === 'vacancies'
         ? 'Ogłoszenia i liczba zgłoszeń w każdym z nich'
@@ -632,7 +663,7 @@ export default function App() {
           <img className="logo" src="/seka-logo.png" alt="SEKA" width={52} height={34} />
         </div>
         <nav className="nav" aria-label="Widoki">
-          {(Object.keys(VIEW_LABEL) as View[]).map((v) => (
+          {(Object.keys(VIEW_LABEL) as View[]).filter((v) => v !== 'admin' || canConfigure).map((v) => (
             <button
               key={v}
               className="nav-item"
@@ -773,7 +804,7 @@ export default function App() {
         </header>
 
         {((session && !canEdit) || anon || error) && (
-          <div className="notices">
+          <section className="notices" aria-label="Komunikaty">
             {session && !canEdit && (
               <div className="notice">
                 Widok kierownika oddziału: widzisz tylko zgłoszenia z miasta {session.city}. Możesz przeglądać profile,
@@ -787,7 +818,7 @@ export default function App() {
               </div>
             )}
             {error && <div className="notice">Nie udało się wczytać danych: {error}</div>}
-          </div>
+          </section>
         )}
 
         {showFilters && (
@@ -906,8 +937,9 @@ export default function App() {
                         <span className="row-meta" title={`${c.position} · ${c.city}`}>{c.position} · {c.city}</span>
                         <span className="row-date">{rel(c.receivedAt)}</span>
                         {hits[c.id] && !anon && <span className="row-snippet">{hits[c.id]}</span>}
-                        {(c.needsReview || c.duplicateOf || c.retentionDue || (c.status === 'interview' && c.interviewAt)) && (
+                        {(c.needsReview || c.missing.length > 0 || c.duplicateOf || c.retentionDue || (c.status === 'interview' && c.interviewAt)) && (
                           <span className="row-badges">
+                            {c.missing.length > 0 && <span className="badge">{c.infoRequestedAt ? 'Czeka na uzupełnienie' : 'Brakuje danych'}</span>}
                             {c.needsReview && <span className="badge">Do sprawdzenia</span>}
                             {c.duplicateOf && <span className="badge">Możliwy duplikat</span>}
                             {c.retentionDue && <span className="badge">Minął okres przechowywania</span>}
@@ -973,6 +1005,15 @@ export default function App() {
                 setView('list');
               }}
               onBulk={(action) => runBulk(action)}
+            />
+          )}
+
+          {view === 'admin' && canConfigure && (
+            <Admin
+              onSaved={say}
+              onRetentionChanged={() => {
+                void reloadAll();
+              }}
             />
           )}
         </main>

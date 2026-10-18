@@ -7,7 +7,7 @@ import { ingestApplication, ingestEml } from '@/lib/candidates';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type Sample = { name: string; file: string; downloadName: string; kind: 'text' | 'scan' | 'eml'; from: string; subject: string };
+type Sample = { name: string; file: string; downloadName: string; kind: 'text' | 'scan' | 'eml' | 'nocv' | 'nocity'; from: string; subject: string };
 
 function samples(): Sample[] {
   try {
@@ -29,13 +29,14 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as { file?: string } | null;
   const sample = samples().find((s) => s.file === body?.file);
   if (!sample) return badRequest('Nieznana próbka.');
-  const buffer = new Uint8Array(fs.readFileSync(path.join(SEED_DIR, sample.file)));
-  if (sample.kind === 'eml') {
+  // "nocv" simulates a message without any attachment
+  const buffer = sample.kind === 'nocv' ? undefined : new Uint8Array(fs.readFileSync(path.join(SEED_DIR, sample.file)));
+  if (sample.kind === 'eml' && buffer) {
     return json(await ingestEml(buffer, 'symulacja', true), 201);
   }
   const result = await ingestApplication({
     buffer,
-    fileName: sample.downloadName,
+    fileName: buffer ? sample.downloadName : undefined,
     from: sample.from,
     subject: sample.subject,
     channel: 'E-mail',

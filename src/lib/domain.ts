@@ -35,47 +35,95 @@ export const isCity = (v: unknown): v is string =>
 export const isPosition = (v: unknown): v is string =>
   typeof v === 'string' && (v === UNKNOWN_POSITION || (POSITIONS as readonly string[]).includes(v));
 
-export type EmailTemplate = 'ack' | 'rejection' | 'invite';
+/** What an application lacks. The candidate is asked for these items by e-mail. */
+export type MissingItem = 'cv' | 'cv_unreadable' | 'city' | 'position';
+/** Wording used in the request to the candidate. */
+export const MISSING_LABEL: Record<MissingItem, string> = {
+  cv: 'CV w formacie PDF (do wiadomości nie dołączono żadnego pliku)',
+  cv_unreadable: 'ponowne przesłanie CV (dołączonego pliku nie udało się odczytać; prosimy o poprawny plik PDF)',
+  city: 'miasto (oddział), którego dotyczy zgłoszenie',
+  position: 'stanowisko, na które aplikujesz',
+};
+/** Short wording for badges and the history. */
+export const MISSING_SHORT: Record<MissingItem, string> = {
+  cv: 'brak CV',
+  cv_unreadable: 'nieczytelne CV',
+  city: 'brak miasta',
+  position: 'brak stanowiska',
+};
 
-export const EMAIL_TEMPLATES: Record<
-  EmailTemplate,
-  { label: string; subject: string; body: (c: { position: string; interviewAt?: string | null }) => string }
-> = {
+export type EmailTemplate = 'ack' | 'missing' | 'rejection' | 'invite';
+export const EMAIL_TEMPLATE_IDS: EmailTemplate[] = ['ack', 'missing', 'invite', 'rejection'];
+
+/**
+ * Message texts. {{placeholders}} are filled in when a message is written:
+ *   {{position}}  the position, {{positionPhrase}} "na stanowisko X" (or "do naszej firmy" when unknown),
+ *   {{when}}      date and time of the interview, {{missingList}} the missing items, one per line.
+ * The administrator can change subject and text in the settings; these are the defaults.
+ */
+export const DEFAULT_TEMPLATES: Record<EmailTemplate, { label: string; subject: string; body: string; placeholders: string[] }> = {
   ack: {
     label: 'Potwierdzenie przyjęcia zgłoszenia',
     subject: 'Potwierdzenie otrzymania zgłoszenia',
-    body: (c) =>
-      `Dzień dobry,\n\ndziękujemy za przesłanie zgłoszenia na stanowisko ${c.position}. ` +
-      `Potwierdzamy, że dokumenty dotarły do działu HR. Skontaktujemy się z wybranymi kandydatami.\n\nDział HR`,
+    body:
+      'Dzień dobry,\n\ndziękujemy za przesłanie zgłoszenia {{positionPhrase}}. ' +
+      'Potwierdzamy, że dokumenty dotarły do działu HR. Skontaktujemy się z wybranymi kandydatami.\n\nDział HR',
+    placeholders: ['{{positionPhrase}}', '{{position}}'],
   },
-  rejection: {
-    label: 'Podziękowanie za udział w rekrutacji',
-    subject: 'Dziękujemy za udział w rekrutacji',
-    body: (c) =>
-      `Dzień dobry,\n\ndziękujemy za udział w procesie rekrutacji na stanowisko ${c.position}. ` +
-      `Informujemy, że na tym etapie skontaktujemy się tylko z wybranymi kandydatami.\n\n` +
-      `Dziękujemy za zainteresowanie naszą firmą i życzymy powodzenia.\n\nDział HR`,
+  missing: {
+    label: 'Prośba o uzupełnienie zgłoszenia',
+    subject: 'Prośba o uzupełnienie zgłoszenia rekrutacyjnego',
+    body:
+      'Dzień dobry,\n\ndziękujemy za przesłanie zgłoszenia {{positionPhrase}}. ' +
+      'Aby móc je rozpatrzyć, prosimy o uzupełnienie:\n\n{{missingList}}\n\n' +
+      'Prosimy o odpowiedź na tę wiadomość z brakującymi informacjami lub dokumentem.\n\nDział HR',
+    placeholders: ['{{missingList}}', '{{positionPhrase}}', '{{position}}'],
   },
   invite: {
     label: 'Zaproszenie na rozmowę',
     subject: 'Zaproszenie na rozmowę kwalifikacyjną',
-    body: (c) => {
-      let when = 'w terminie, który ustalimy z Państwem telefonicznie';
-      if (c.interviewAt) {
-        const [d, t] = c.interviewAt.split('T');
-        const [y, m, day] = d.split('-');
-        when = `${day}.${m}.${y} o godzinie ${t}`;
-      }
-      return (
-        `Dzień dobry,\n\nzapraszamy na rozmowę kwalifikacyjną na stanowisko ${c.position}. ` +
-        `Rozmowa odbędzie się ${when}.\n\nProsimy o potwierdzenie obecności w odpowiedzi na tę wiadomość.\n\nDział HR`
-      );
-    },
+    body:
+      'Dzień dobry,\n\nzapraszamy na rozmowę kwalifikacyjną {{positionPhrase}}. Rozmowa odbędzie się {{when}}.\n\n' +
+      'Prosimy o potwierdzenie obecności w odpowiedzi na tę wiadomość.\n\nDział HR',
+    placeholders: ['{{when}}', '{{positionPhrase}}', '{{position}}'],
+  },
+  rejection: {
+    label: 'Podziękowanie za udział w rekrutacji',
+    subject: 'Dziękujemy za udział w rekrutacji',
+    body:
+      'Dzień dobry,\n\ndziękujemy za udział w procesie rekrutacji {{positionPhrase}}. ' +
+      'Informujemy, że na tym etapie skontaktujemy się tylko z wybranymi kandydatami.\n\n' +
+      'Dziękujemy za zainteresowanie naszą firmą i życzymy powodzenia.\n\nDział HR',
+    placeholders: ['{{positionPhrase}}', '{{position}}'],
   },
 };
 
-/** Preview of the rejection message in the UI. */
-export const REJECTION_TEMPLATE = (position: string) => EMAIL_TEMPLATES.rejection.body({ position });
+export const EMAIL_TEMPLATE_LABEL = Object.fromEntries(
+  EMAIL_TEMPLATE_IDS.map((id) => [id, DEFAULT_TEMPLATES[id].label]),
+) as Record<EmailTemplate, string>;
+
+export type TemplateVars = { position: string; interviewAt?: string | null; missing?: MissingItem[] };
+export type TemplateOverride = { subject?: string; body?: string };
+
+/** Fills a message in. `override` is the administrator's own wording for this message, if any. */
+export function renderTemplate(id: EmailTemplate, vars: TemplateVars, override?: TemplateOverride): { subject: string; body: string } {
+  const base = DEFAULT_TEMPLATES[id];
+  const known = !!vars.position && vars.position !== UNKNOWN_POSITION;
+  let when = 'w terminie, który ustalimy z Państwem telefonicznie';
+  if (vars.interviewAt) {
+    const [d, t] = vars.interviewAt.split('T');
+    const [y, m, day] = d.split('-');
+    when = `${day}.${m}.${y} o godzinie ${t}`;
+  }
+  const values: Record<string, string> = {
+    position: known ? vars.position : 'nieokreślone',
+    positionPhrase: known ? `na stanowisko ${vars.position}` : 'do naszej firmy',
+    when,
+    missingList: (vars.missing ?? []).map((m) => `- ${MISSING_LABEL[m]}`).join('\n'),
+  };
+  const fill = (text: string) => text.replace(/\{\{(\w+)\}\}/g, (whole, key: string) => (key in values ? values[key] : whole));
+  return { subject: fill(override?.subject?.trim() || base.subject), body: fill(override?.body?.trim() || base.body) };
+}
 
 /** Lower-case, strip diacritics (including ł) so Polish text can be matched loosely. */
 export const norm = (s: string) =>
@@ -123,6 +171,10 @@ export type CandidateListItem = {
   /** The CV contains consent for future recruitments: the candidate is part of the talent pool. */
   consentFuture: boolean;
   vacancyId: string | null;
+  /** What the application lacks (CV, readable CV, city, position). */
+  missing: MissingItem[];
+  /** When the candidate was asked to complete the application, if they were. */
+  infoRequestedAt: string | null;
 };
 
 export type CandidateDetail = CandidateListItem & {
@@ -142,6 +194,8 @@ export type CandidateDetail = CandidateListItem & {
   profile: CvProfile;
   vacancy: VacancyDto | null;
   feedback: FeedbackDto[];
+  /** The rejection message as it would be sent (with the administrator's wording), for the preview. */
+  rejectionPreview: string;
 };
 
 export type EmailDto = {
@@ -181,6 +235,7 @@ export type StatsDto = {
     unsentRejections: number;
     retentionDue: number;
     emptyVacancies: number;
+    missingInfo: number;
   };
 };
 

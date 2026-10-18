@@ -17,7 +17,7 @@ export default function Board({ items, canEdit, anon, onOpen, onMove }: Props) {
   const [over, setOver] = useState<StatusId | null>(null);
 
   return (
-    <div className="board">
+    <div className="board" role="region" aria-label="Tablica statusów" tabIndex={0}>
       {STATUSES.map((s) => {
         const cards = items.filter((c) => c.status === s.id);
         return (

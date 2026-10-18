@@ -165,6 +165,7 @@ test('summary numbers and attention list', async () => {
   assert.equal(stats.byCity.length, 7);
   assert.equal(stats.perWeek.length, 8);
   assert.equal(stats.attention.needsReview, 1);
+  assert.equal(stats.attention.missingInfo, 1, 'one seeded application has no city');
   assert.equal(stats.attention.duplicates, 1);
   assert.equal(stats.attention.stale, 2);
   assert.equal(stats.attention.retentionDue, 2);
@@ -264,10 +265,16 @@ test('e-mail intake: key, PDF, vacancy link, duplicates, missing attachment', as
   const nd = await detail(none.body.id);
   assert.equal(nd.city, 'Do przypisania');
   assert.equal(nd.needsReview, true);
-  const dup = await post('/api/ingest', { from: 'jan.testowy@example.com', subject: 'Jeszcze raz (Gdańsk)' }, null, headers);
+  // the same address again: flagged as a possible duplicate of the complete profile
+  const dup = await post('/api/ingest', { from: 'weronika.adamska@example.com', subject: 'Jeszcze raz (Gdańsk)' }, null, headers);
   const dd = await detail(dup.body.id);
-  assert.equal(dd.duplicateOf, none.body.id);
+  assert.equal(dd.duplicateOf, res.body.id);
   assert.equal(dd.city, 'Gdańsk');
+  // ... but the answer of someone who was asked for missing data completes that profile instead
+  const answer = await post('/api/ingest', { from: 'jan.testowy@example.com', subject: 'Odpowiedź (Gdańsk)' }, null, headers);
+  assert.equal(answer.body.merged, true);
+  assert.equal(answer.body.id, none.body.id);
+  assert.equal((await detail(none.body.id)).city, 'Gdańsk');
 });
 
 test('every seeded CV is read back correctly', async () => {
@@ -411,6 +418,238 @@ test('"upcoming interviews" follow the company clock, not UTC', async () => {
   const upcoming = (await call('/api/stats')).body.stats.upcomingInterviews.map((x) => x.id);
   assert.ok(upcoming.includes(soon), 'an interview in 90 minutes is upcoming');
   assert.ok(!upcoming.includes(earlier), 'an interview 90 minutes ago is not');
+});
+
+const INGEST = { 'x-api-key': KEY };
+const ingest = (data) => post('/api/ingest', data, null, INGEST);
+const pdfB64 = (rel) => seedFile(rel).toString('base64');
+
+test('incomplete applications: the candidate is asked, the answer completes the same profile', async () => {
+  // 1. no attachment at all: a request for the CV goes out right away
+  const first = await ingest({ from: 'Łukasz Sadowski <lukasz.sadowski@example.com>', subject: 'Aplikacja – Specjalista ds. pomiarów emisji (Gdańsk)' });
+  assert.equal(first.status, 201);
+  assert.deepEqual(first.body.missing, ['cv']);
+  assert.equal(first.body.infoRequested, true);
+  assert.equal(first.body.merged, false);
+  let d = await detail(first.body.id);
+  const request = d.emails.find((m) => m.template === 'missing');
+  assert.ok(request, 'the request is recorded in the correspondence');
+  assert.ok(!d.emails.some((m) => m.template === 'ack'), 'a request replaces the plain acknowledgement');
+  assert.match(request.subject, /uzupełnienie/i);
+  assert.match(request.body, /CV w formacie PDF/);
+  assert.ok(request.body.includes('na stanowisko Specjalista ds. pomiarów emisji'));
+  assert.ok(d.events.some((e) => e.text.includes('Prośba o uzupełnienie') && e.text.includes('brak CV')));
+  assert.deepEqual(d.missing, ['cv']);
+  assert.ok(d.infoRequestedAt);
+
+  // 2. the candidate answers with the CV: the same profile is completed, no second profile appears
+  const before = (await candidates()).length;
+  const reply = await ingest({
+    from: 'Łukasz Sadowski <lukasz.sadowski@example.com>',
+    subject: 'Re: Aplikacja',
+    attachments: [{ name: 'CV.pdf', contentBase64: pdfB64('incoming/CV_lukasz_sadowski.pdf') }],
+  });
+  assert.equal(reply.body.merged, true);
+  assert.equal(reply.body.id, first.body.id);
+  assert.deepEqual(reply.body.missing, []);
+  assert.equal((await candidates()).length, before, 'no new profile');
+  d = await detail(first.body.id);
+  assert.ok(d.file, 'the CV is attached now');
+  assert.deepEqual(d.missing, []);
+  assert.ok(d.events.some((e) => e.text.startsWith('Uzupełnienie zgłoszenia') && e.text.includes('dodano CV')));
+  assert.ok(d.events.some((e) => e.text === 'Zgłoszenie jest kompletne'));
+  assert.equal(d.city, 'Gdańsk', 'what was known stays as it was');
+  assert.ok(d.profile.skills.length > 0, 'the CV was read');
+  // an application that is complete again is not matched a second time
+  const again = await ingest({ from: 'lukasz.sadowski@example.com', subject: 'Aplikacja – Konsultant ds. BHP (Poznań)' });
+  assert.equal(again.body.merged, false);
+});
+
+test('incomplete applications: unreadable CV, no city, no position', async () => {
+  // a scan has no text: the candidate is asked for a readable file
+  const scan = await ingest({
+    from: 'Julia Maciejewska <julia.maciejewska@example.com>',
+    subject: 'Aplikacja – Młodszy specjalista ds. raportowania (Katowice)',
+    attachments: [{ name: 'skan.pdf', contentBase64: pdfB64('incoming/CV_julia_maciejewska.pdf') }],
+  });
+  assert.deepEqual(scan.body.missing, ['cv_unreadable']);
+  assert.equal(scan.body.infoRequested, true);
+  const sd = await detail(scan.body.id);
+  assert.ok(sd.file, 'the file is kept');
+  assert.match(sd.emails.find((m) => m.template === 'missing').body, /nie udało się odczytać/);
+
+  // a readable CV that names neither a city nor a position, in a mail that does not either
+  const generic = await ingest({
+    from: 'dorota.bezmiasta@example.com',
+    subject: 'Aplikacja o pracę',
+    attachments: [{ name: 'CV.pdf', contentBase64: pdfB64('incoming/CV_dorota_bezmiasta.pdf') }],
+  });
+  assert.deepEqual(generic.body.missing, ['city', 'position']);
+  assert.equal(generic.body.infoRequested, true);
+  let gd = await detail(generic.body.id);
+  assert.equal(gd.city, 'Do przypisania');
+  const body = gd.emails.find((m) => m.template === 'missing').body;
+  assert.match(body, /miasto/);
+  assert.match(body, /stanowisko/);
+  assert.ok(body.includes('do naszej firmy'), 'no position is named in the greeting');
+
+  // the answer is a short mail that names both
+  const reply = await ingest({ from: 'dorota.bezmiasta@example.com', subject: 'Re: Aplikacja o pracę, Technik laboratoryjny, Katowice' });
+  assert.equal(reply.body.merged, true);
+  assert.equal(reply.body.id, generic.body.id);
+  assert.deepEqual(reply.body.missing, []);
+  gd = await detail(generic.body.id);
+  assert.equal(gd.city, 'Katowice');
+  assert.equal(gd.position, 'Technik laboratoryjny');
+  assert.equal(gd.needsReview, false, 'a profile that is complete no longer needs a check');
+  assert.ok(gd.events.some((e) => e.text.includes('ustalono miasto: Katowice')));
+  // an answer that brings nothing new is noted, and nobody is asked twice
+  const empty = await ingest({ from: 'Ktoś <ktos.bezcv@example.com>', subject: 'Aplikacja' });
+  assert.equal(empty.body.infoRequested, true);
+  const silly = await ingest({ from: 'ktos.bezcv@example.com', subject: 'Dzień dobry, czy ktoś tu jest?' });
+  assert.equal(silly.body.merged, true);
+  const sdl = await detail(empty.body.id);
+  assert.ok(sdl.events.some((e) => e.text.includes('nie zawierała brakujących danych')));
+  assert.equal(sdl.emails.filter((m) => m.template === 'missing').length, 1, 'no second request');
+});
+
+test('incomplete applications: HR asks again, attaches a CV; others cannot', async () => {
+  const made = await ingest({ from: 'Test Reczny <test.reczny@example.com>', subject: 'Aplikacja – Księgowy (Poznań)' });
+  const id = made.body.id;
+  assert.deepEqual(made.body.missing, ['cv']);
+  // a second request by hand
+  const again = await post(`/api/candidates/${id}/emails`, { template: 'missing' });
+  assert.equal(again.status, 201);
+  assert.equal(again.body.delivery, 'simulated');
+  assert.equal((await detail(id)).emails.filter((m) => m.template === 'missing').length, 2);
+  assert.equal((await post(`/api/candidates/${id}/emails`, { template: 'missing' }, MANAGER)).status, 403, 'a branch manager cannot send');
+  // not a PDF, then the PDF
+  const upload = (blob, name, cookie) => {
+    const fd = new FormData();
+    fd.append('file', blob, name);
+    return call(`/api/candidates/${id}/cv`, { method: 'POST', body: fd }, cookie);
+  };
+  assert.equal((await upload(new Blob(['hello']), 'x.pdf')).status, 400);
+  assert.equal((await upload(new Blob([seedFile('incoming/CV_bartosz_kaczmarek.pdf')], { type: 'application/pdf' }), 'CV.pdf', null)).status, 401);
+  const ok = await upload(new Blob([seedFile('incoming/CV_bartosz_kaczmarek.pdf')], { type: 'application/pdf' }), 'CV_bartosz.pdf');
+  assert.equal(ok.status, 201);
+  assert.ok(ok.body.changes.includes('dodano CV'));
+  assert.deepEqual(ok.body.candidate.missing, []);
+  assert.equal(ok.body.candidate.file.name, 'CV_bartosz.pdf');
+  assert.equal(ok.body.candidate.city, 'Poznań', 'the city of the application is kept');
+  // nothing missing any more: nothing to ask, nothing to attach
+  assert.equal((await post(`/api/candidates/${id}/emails`, { template: 'missing' })).status, 400);
+  assert.equal((await upload(new Blob([seedFile('incoming/CV_bartosz_kaczmarek.pdf')]), 'CV.pdf')).status, 409);
+});
+
+test('incomplete applications: they show up on the dashboard and can be switched off', async () => {
+  const stats = (await call('/api/stats')).body.stats;
+  assert.ok(stats.attention.missingInfo >= 3, 'counted for HR: ' + stats.attention.missingInfo);
+  const list = await candidates();
+  assert.ok(list.some((c) => c.missing.length && c.infoRequestedAt), 'the list tells who was asked');
+  assert.ok(list.every((c) => Array.isArray(c.missing)));
+  // the demo samples cover both cases
+  const samples = (await call('/api/demo/samples')).body.samples;
+  assert.ok(samples.some((x) => x.kind === 'nocv') && samples.some((x) => x.kind === 'nocity'));
+  const nocv = await post('/api/demo/samples', { file: samples.find((x) => x.kind === 'nocv').file });
+  assert.equal(nocv.status, 201);
+  assert.deepEqual(nocv.body.missing, ['cv']);
+  const nocity = await post('/api/demo/samples', { file: samples.find((x) => x.kind === 'nocity').file });
+  assert.deepEqual(nocity.body.missing, ['city', 'position']);
+  // the rejection text shown in the profile is the real one
+  const any = (await candidates())[0];
+  assert.match((await detail(any.id)).rejectionPreview, /Dział HR/);
+});
+
+test('administration: only the administrator reads or changes the settings', async () => {
+  for (const [cookie, status] of [[null, 401], [HR, 403], [MANAGER, 403], [ADMIN, 200]]) {
+    assert.equal((await call('/api/admin/settings', {}, cookie)).status, status, 'GET for ' + status);
+  }
+  const put = send('PUT');
+  assert.equal((await put('/api/admin/settings', { autoAck: false }, HR)).status, 403);
+  assert.equal((await put('/api/admin/settings', { autoAck: false }, MANAGER)).status, 403);
+  assert.equal((await put('/api/admin/settings', { autoAck: false }, null)).status, 401);
+  const cfg = (await call('/api/admin/settings', {}, ADMIN)).body;
+  assert.equal(cfg.settings.autoAck, true);
+  assert.equal(cfg.settings.autoMissing, true);
+  assert.equal(cfg.settings.retentionMonths, 6);
+  assert.deepEqual(cfg.templates.map((t) => t.id).sort(), ['ack', 'invite', 'missing', 'rejection']);
+  assert.ok(cfg.templates.every((t) => t.subject && t.body && !t.customized));
+  assert.ok(cfg.permissions.length >= 8);
+  assert.equal(cfg.directory.filter((a) => a.role === 'manager').length, 6);
+  assert.ok(cfg.directory.every((a) => a.entraRole.startsWith('SEKA.')));
+  assert.equal(cfg.integrations.authMode, 'demo');
+  assert.equal(cfg.integrations.ingestEnabled, true);
+  assert.equal(cfg.integrations.smtpConfigured, false);
+  assert.ok(cfg.dictionaries.cities.includes('Kraków'));
+});
+
+test('administration: wording, switches and retention take effect and are logged', async () => {
+  const put = send('PUT');
+  const settings = async () => (await call('/api/admin/settings', {}, ADMIN)).body;
+  // wrong input is refused
+  for (const bad of [
+    { retentionMonths: 0 }, { retentionMonths: 241 }, { retentionMonths: 'x' }, { poolRetentionMonths: 1.5 }, { autoAck: 'yes' },
+    { templates: { nope: { subject: 'a', body: 'b' } } },
+    { templates: { ack: { subject: '', body: 'x' } } },
+    { templates: { ack: { subject: 'x', body: '' } } },
+    { templates: { missing: { subject: 'Temat', body: 'tekst bez listy braków' } } },
+    { templates: { invite: { subject: 'Temat', body: 'tekst bez terminu' } } },
+    [1, 2],
+  ]) {
+    assert.equal((await put('/api/admin/settings', bad, ADMIN)).status, 400, JSON.stringify(bad));
+  }
+
+  // own wording is used from the next message on
+  const wording = { subject: 'Własny temat', body: 'Cześć! Dziękujemy za zgłoszenie {{positionPhrase}}. Do zobaczenia.' };
+  assert.equal((await put('/api/admin/settings', { templates: { ack: wording } }, ADMIN)).status, 200);
+  assert.equal((await settings()).templates.find((t) => t.id === 'ack').customized, true);
+  const cv = (rel) => [{ name: 'CV.pdf', contentBase64: pdfB64(rel) }];
+  const ok = await ingest({ from: 'Ala Testowa <ala.ack@example.com>', subject: 'Aplikacja – Specjalista ds. ochrony środowiska (Wrocław)', attachments: cv('incoming/CV_izabela_nowicka.pdf') });
+  assert.deepEqual(ok.body.missing, []);
+  const ack = (await detail(ok.body.id)).emails.find((m) => m.template === 'ack');
+  assert.equal(ack.subject, 'Własny temat');
+  assert.equal(ack.body, 'Cześć! Dziękujemy za zgłoszenie na stanowisko Specjalista ds. ochrony środowiska. Do zobaczenia.');
+  // back to the default text
+  assert.equal((await put('/api/admin/settings', { templates: { ack: null } }, ADMIN)).status, 200);
+  assert.equal((await settings()).templates.find((t) => t.id === 'ack').customized, false);
+  const dflt = await ingest({ from: 'Ola Domyslna <ola.default@example.com>', subject: 'Aplikacja – Specjalista ds. ochrony środowiska (Wrocław)', attachments: cv('incoming/CV_izabela_nowicka.pdf') });
+  assert.equal((await detail(dflt.body.id)).emails.find((m) => m.template === 'ack').subject, 'Potwierdzenie otrzymania zgłoszenia');
+
+  // the request for missing data can be switched off: the candidate then only gets the acknowledgement
+  assert.equal((await put('/api/admin/settings', { autoMissing: false }, ADMIN)).status, 200);
+  const quiet = await ingest({ from: 'Cichy Kandydat <cichy.bezcv@example.com>', subject: 'Aplikacja – Księgowy (Poznań)' });
+  assert.deepEqual(quiet.body.missing, ['cv'], 'the gap is still recorded');
+  assert.equal(quiet.body.infoRequested, false);
+  const qd = await detail(quiet.body.id);
+  assert.ok(qd.emails.some((m) => m.template === 'ack') && !qd.emails.some((m) => m.template === 'missing'));
+  // HR can still ask by hand
+  assert.equal((await post(`/api/candidates/${quiet.body.id}/emails`, { template: 'missing' })).status, 201);
+  // and every automatic message can be switched off
+  assert.equal((await put('/api/admin/settings', { autoAck: false }, ADMIN)).status, 200);
+  const mute = await ingest({ from: 'Cisza Kandydat <cisza.bezcv@example.com>', subject: 'Aplikacja – Księgowy (Poznań)' });
+  assert.equal((await detail(mute.body.id)).emails.length, 0);
+  assert.equal((await put('/api/admin/settings', { autoAck: true, autoMissing: true }, ADMIN)).status, 200);
+  const loud = await ingest({ from: 'Glosny Kandydat <glosny.bezcv@example.com>', subject: 'Aplikacja – Księgowy (Poznań)' });
+  assert.equal(loud.body.infoRequested, true);
+
+  // the retention period is a setting too: a profile that is 100 days old is due after three months, not after six
+  const old = await ingest({
+    from: 'Stary Kandydat <stary.bezcv@example.com>',
+    subject: 'Aplikacja – Księgowy (Poznań)',
+    receivedAt: new Date(Date.now() - 100 * 864e5).toISOString(),
+  });
+  const dueNow = async () => (await candidates()).find((c) => c.id === old.body.id).retentionDue;
+  assert.equal(await dueNow(), false);
+  assert.equal((await put('/api/admin/settings', { retentionMonths: 3 }, ADMIN)).status, 200);
+  assert.equal((await settings()).settings.retentionMonths, 3);
+  assert.equal(await dueNow(), true, 'three months: due');
+  assert.equal((await put('/api/admin/settings', { retentionMonths: 6 }, ADMIN)).status, 200);
+  assert.equal(await dueNow(), false, 'six months again: not due');
+
+  const audit = (await call('/api/audit')).body.entries;
+  assert.ok(audit.some((e) => e.action === 'settings-update' && e.detail.includes('retentionMonths=3')));
+  assert.ok(audit.some((e) => e.action === 'settings-update' && e.actor.startsWith('Administrator')));
 });
 
 test('sign-in: nothing is open without a session, tampered cookies are refused', async () => {

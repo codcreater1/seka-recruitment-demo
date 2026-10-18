@@ -3,12 +3,12 @@
 import { useState } from 'react';
 import {
   CITIES,
-  EMAIL_TEMPLATES,
+  EMAIL_TEMPLATE_LABEL,
   FEEDBACK_CRITERIA,
+  MISSING_SHORT,
   PIPELINE,
   POSITIONS,
   RECOMMENDATIONS,
-  REJECTION_TEMPLATE,
   UNASSIGNED_CITY,
   UNKNOWN_POSITION,
   statusLabel,
@@ -43,6 +43,7 @@ type Props = {
   onNote: (text: string) => Promise<boolean>;
   onFeedback: (f: FeedbackInput) => Promise<boolean>;
   onSendEmail: (template: EmailTemplate) => Promise<void>;
+  onAttachCv: (file: File) => Promise<boolean>;
   onDelete: () => Promise<void>;
   onOpen: (id: string) => void;
 };
@@ -54,7 +55,7 @@ const MAIL_STATUS: Record<string, string> = { sent: 'wysłano', simulated: 'symu
 const HIDDEN = '— ukryte (tryb anonimowy)';
 
 export default function Detail({
-  c, session, anon, vacancies, onBack, onClose, onPatch, onNote, onFeedback, onSendEmail, onDelete, onOpen,
+  c, session, anon, vacancies, onBack, onClose, onPatch, onNote, onFeedback, onSendEmail, onAttachCv, onDelete, onOpen,
 }: Props) {
   const edit = session.canEdit;
   const [tab, setTab] = useState<Tab>('overview');
@@ -91,8 +92,9 @@ export default function Detail({
           <div>
             <h2>{displayName(c, anon)}</h2>
             <div className="d-sub">{c.position} · {c.city}</div>
-            {(c.consentFuture || c.vacancy) && (
+            {(c.consentFuture || c.vacancy || c.missing.length > 0) && (
               <div className="badges">
+                {c.missing.length > 0 && <span className="badge">{c.infoRequestedAt ? 'Czeka na uzupełnienie' : 'Brakuje danych'}</span>}
                 {c.consentFuture && <span className="badge ok">Baza kandydatów</span>}
                 {c.vacancy && <span className="badge info">Ogłoszenie: {cityOf(c.vacancy)}</span>}
               </div>
@@ -102,6 +104,27 @@ export default function Detail({
         <Chip status={c.status} />
       </div>
 
+      {c.missing.length > 0 && (
+        <div className="banner">
+          <span>
+            <strong>Brakuje: {c.missing.map((m) => MISSING_SHORT[m]).join(', ')}.</strong>{' '}
+            {c.infoRequestedAt
+              ? `Prośba o uzupełnienie została wysłana do kandydata ${fmtDate(c.infoRequestedAt)}.`
+              : 'Kandydat nie został jeszcze poproszony o uzupełnienie.'}
+          </span>
+          {edit && (
+            <button
+              className="btn small"
+              type="button"
+              disabled={!c.email}
+              title={c.email ? undefined : 'Brak adresu e-mail kandydata'}
+              onClick={() => onSendEmail('missing')}
+            >
+              {c.infoRequestedAt ? 'Wyślij prośbę ponownie' : 'Poproś o uzupełnienie'}
+            </button>
+          )}
+        </div>
+      )}
       {edit && c.needsReview && (
         <div className="banner">
           <span>System nie jest pewny odczytu (brak imienia, miasta lub stanowiska). Sprawdź dane w zakładce Przegląd i zatwierdź.</span>
@@ -190,7 +213,7 @@ export default function Detail({
               {c.status === 'rejected' && (
                 <div className="reply">
                   <p className="hint">Szablon odpowiedzi do kandydata</p>
-                  <pre>{REJECTION_TEMPLATE(c.position)}</pre>
+                  <pre>{c.rejectionPreview}</pre>
                   {c.rejectionSent ? (
                     <p className="hint" style={{ marginTop: '0.5rem' }}>Podziękowanie zostało już wysłane (zobacz Korespondencja).</p>
                   ) : (
@@ -382,6 +405,23 @@ export default function Detail({
             ) : (
               <p className="hint">Do tego zgłoszenia nie dołączono pliku PDF.</p>
             )}
+            {edit && !anon && (c.missing.includes('cv') || c.missing.includes('cv_unreadable')) && (
+              <div className="attach">
+                <label className="btn small primary" htmlFor="attach-cv">Dołącz CV…</label>
+                <input
+                  id="attach-cv"
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  hidden
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) await onAttachCv(f);
+                  }}
+                />
+                <span className="hint">Plik, który kandydat odesłał po prośbie o uzupełnienie. Miasto i stanowisko zostaną uzupełnione, jeśli da się je odczytać.</span>
+              </div>
+            )}
           </section>
         )}
 
@@ -490,7 +530,7 @@ export default function Detail({
             {c.emails.length ? (
               <div>
                 {[...c.emails].reverse().map((m) => {
-                  const label = EMAIL_TEMPLATES[m.template as EmailTemplate]?.label || m.subject;
+                  const label = EMAIL_TEMPLATE_LABEL[m.template as EmailTemplate] || m.subject;
                   return (
                     <details className="mail" key={m.id}>
                       <summary>
