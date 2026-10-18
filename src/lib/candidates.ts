@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import { simpleParser } from 'mailparser';
-import { addEvent, audit, filePath, getDb, newId, nowIso, FILES_DIR } from './db';
+import { addEvent, audit, attachmentPath, filePath, getDb, newId, nowIso, ATTACHMENTS_DIR, FILES_DIR } from './db';
 import {
   EMAIL_TEMPLATE_LABEL,
   MISSING_SHORT,
   UNASSIGNED_CITY,
   UNKNOWN_POSITION,
   statusLabel,
+  ATTACHMENT_KINDS,
+  type AttachmentDto,
+  type AttachmentKind,
   type CandidateDetail,
   type CandidateListItem,
   type EmailDto,
@@ -112,11 +115,82 @@ export async function getCandidate(s: Session, id: string): Promise<CandidateDet
   return {
     ...toItem(row),
     phone: row.phone, channel: row.channel, from: row.from_addr, subject: row.subject, cityBasis: row.city_basis,
-    rodo: row.rodo, file: row.file_id ? { name: row.file_name || 'CV.pdf', size: row.file_size || 0 } : null,
+    rodo: row.rodo, attachments: listAttachments(id), file: row.file_id ? { name: row.file_name || 'CV.pdf', size: row.file_size || 0 } : null,
     rawText: row.raw_text, retentionDate: ret.retentionDate, notes, events, emails,
     profile: analyzeCv(row.raw_text), vacancy, feedback,
     rejectionPreview: writeTemplate('rejection', { position: row.position }).body,
   };
+}
+
+export const MAX_ATTACHMENTS = 10;
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/** The type is decided by the first bytes of the file, never by its name or what the sender claims. */
+export function sniffMime(b: Uint8Array): 'application/pdf' | 'image/png' | 'image/jpeg' | null {
+  if (b.length >= 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return 'application/pdf';
+  if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  return null;
+}
+
+type AttachmentRow = { id: string; candidate_id: string; kind: AttachmentKind; name: string; mime: string; size: number; added_at: string; added_by: string };
+const toAttachment = (a: AttachmentRow): AttachmentDto => ({ id: a.id, kind: a.kind, name: a.name, mime: a.mime, size: a.size, addedAt: a.added_at, addedBy: a.added_by });
+
+export function listAttachments(candidateId: string): AttachmentDto[] {
+  return (getDb().prepare('SELECT * FROM attachments WHERE candidate_id = ? ORDER BY added_at, id').all(candidateId) as AttachmentRow[]).map(toAttachment);
+}
+
+export function getAttachment(s: Session, candidateId: string, id: string): (AttachmentDto & { path: string }) | undefined {
+  if (!getRow(s, candidateId)) return undefined;
+  const a = getDb().prepare('SELECT * FROM attachments WHERE id = ? AND candidate_id = ?').get(id, candidateId) as AttachmentRow | undefined;
+  return a ? { ...toAttachment(a), path: attachmentPath(a.id) } : undefined;
+}
+
+/** Stores one more document on the profile. Returns an error text for the caller to show. */
+export function addAttachment(
+  candidateId: string, bytes: Uint8Array, name: string, kind: AttachmentKind, actor: string,
+): { attachment: AttachmentDto } | { error: string } {
+  const db = getDb();
+  if (bytes.byteLength === 0) return { error: 'Plik jest pusty.' };
+  if (bytes.byteLength > MAX_ATTACHMENT_BYTES) return { error: 'Plik jest większy niż 10 MB.' };
+  const mime = sniffMime(bytes);
+  if (!mime) return { error: 'Dozwolone formaty to PDF, JPG i PNG.' };
+  const n = (db.prepare('SELECT COUNT(*) AS n FROM attachments WHERE candidate_id = ?').get(candidateId) as { n: number }).n;
+  if (n >= MAX_ATTACHMENTS) return { error: `Profil może mieć najwyżej ${MAX_ATTACHMENTS} załączników.` };
+  const id = newId();
+  const clean = (name || 'dokument').replace(/[\u0000-\u001f\u007f/\\]/g, '_').slice(0, 200);
+  fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
+  fs.writeFileSync(attachmentPath(id), bytes);
+  db.prepare('INSERT INTO attachments (id, candidate_id, kind, name, mime, size, added_at, added_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id, candidateId, kind, clean, mime, bytes.byteLength, nowIso(), actor,
+  );
+  const label = ATTACHMENT_KINDS.find((k) => k.id === kind)?.label ?? 'Dokument';
+  addEvent(candidateId, actor, `Dodano załącznik: ${label.toLowerCase()} (${clean})`);
+  return { attachment: toAttachment(db.prepare('SELECT * FROM attachments WHERE id = ?').get(id) as AttachmentRow) };
+}
+
+export function removeAttachment(s: Session, candidateId: string, id: string): boolean {
+  const a = getAttachment(s, candidateId, id);
+  if (!a) return false;
+  getDb().prepare('DELETE FROM attachments WHERE id = ?').run(id);
+  try {
+    fs.unlinkSync(a.path);
+  } catch {
+    /* already gone */
+  }
+  addEvent(candidateId, s.name, `Usunięto załącznik: ${a.name}`);
+  audit(s.name, 'delete-attachment', `${a.name} (profil ${candidateId})`);
+  return true;
+}
+
+function removeAttachmentFiles(candidateId: string) {
+  for (const a of getDb().prepare('SELECT id FROM attachments WHERE candidate_id = ?').all(candidateId) as { id: string }[]) {
+    try {
+      fs.unlinkSync(attachmentPath(a.id));
+    } catch {
+      /* already gone */
+    }
+  }
 }
 
 /** Sends (or, without SMTP, only records) one of the standard messages and logs it on the profile. */
@@ -156,6 +230,8 @@ const MAX_CV_TEXT = 100_000;
 export type IngestInput = {
   buffer?: Uint8Array;
   fileName?: string;
+  /** Further files of the same message (cover letter, certificates ...) kept as attachments. */
+  extras?: { name: string; bytes: Uint8Array }[];
   from: string;
   subject: string;
   receivedAt?: string;
@@ -293,6 +369,10 @@ async function applyCompletion(
  * When the application lacks something obvious (no CV, an unreadable CV, no city, no position) the candidate
  * gets a request for it, and the answer of that candidate later completes the same profile.
  */
+function storeExtras(candidateId: string, extras: IngestInput['extras']) {
+  for (const x of (extras ?? []).slice(0, MAX_ATTACHMENTS)) addAttachment(candidateId, x.bytes, x.name, 'other', 'system');
+}
+
 export async function ingestApplication(rawInput: IngestInput): Promise<IngestResult> {
   // a mail header or a file name from outside is never trusted to be short
   const input: IngestInput = {
@@ -311,6 +391,7 @@ export async function ingestApplication(rawInput: IngestInput): Promise<IngestRe
   const waiting = email && input.channel === 'E-mail' ? findWaitingProfile(email) : undefined;
   if (waiting) {
     const done = await applyCompletion(waiting, { buffer: input.buffer, fileName: input.fileName, subject: input.subject, actor: 'system', via: 'e-mail' });
+    storeExtras(waiting.id, input.extras);
     audit(input.actor, 'ingest-reply', `Uzupełnienie od kandydata: ${waiting.name} (${done.row.city})`);
     return { id: waiting.id, needsReview: !!done.row.needs_review, missing: computeMissing(done.row), infoRequested: false, merged: true };
   }
@@ -376,6 +457,7 @@ export async function ingestApplication(rawInput: IngestInput): Promise<IngestRe
   run();
 
   const row = db.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as Row;
+  storeExtras(id, input.extras);
   void notifyEvent('new', row);
   const missing = computeMissing(row);
   let infoRequested = false;
@@ -408,6 +490,7 @@ export async function ingestEml(buffer: Uint8Array, actor: string, autoAck = fal
   return ingestApplication({
     buffer: pdf ? new Uint8Array(pdf.content) : undefined,
     fileName: pdf?.filename || undefined,
+    extras: mail.attachments.filter((a) => a !== pdf).slice(0, MAX_ATTACHMENTS).map((a) => ({ name: a.filename || 'załącznik', bytes: new Uint8Array(a.content) })),
     from: mail.from?.text || '',
     subject: mail.subject || '',
     receivedAt: mail.date ? mail.date.toISOString() : undefined,
@@ -422,6 +505,7 @@ export function deleteCandidate(s: Session, id: string): boolean {
   const row = getRow(s, id);
   if (!row) return false;
   const db = getDb();
+  removeAttachmentFiles(id);
   db.prepare('DELETE FROM candidates WHERE id = ?').run(id);
   removeFromIndex(id);
   if (row.file_id) {
@@ -661,7 +745,7 @@ export function mergeDuplicate(s: Session, id: string): { ok: true; targetId: st
   const db = getDb();
   const takeFile = !target.file_id && !!src.file_id;
   db.transaction(() => {
-    for (const table of ['notes', 'events', 'emails', 'feedback']) {
+    for (const table of ['notes', 'events', 'emails', 'feedback', 'attachments']) {
       db.prepare(`UPDATE ${table} SET candidate_id = ? WHERE candidate_id = ?`).run(target.id, src.id);
     }
     db.prepare('UPDATE candidates SET duplicate_of = ? WHERE duplicate_of = ? AND id <> ?').run(target.id, src.id, target.id);

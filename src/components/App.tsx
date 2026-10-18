@@ -8,6 +8,7 @@ import {
   UNASSIGNED_CITY,
   norm,
   statusLabel,
+  type AttachmentKind,
   type CandidateDetail,
   type CandidateListItem,
   type EmailTemplate,
@@ -437,6 +438,33 @@ export default function App() {
     }
   };
 
+  const addAttachment = async (file: File, kind: AttachmentKind) => {
+    if (!selId) return false;
+    const form = new FormData();
+    form.append('file', file);
+    form.append('kind', kind);
+    try {
+      const data = await api<{ candidate: CandidateDetail }>(`/api/candidates/${selId}/attachments`, { method: 'POST', body: form });
+      applyDetail(data.candidate);
+      say('Załącznik dodany');
+      return true;
+    } catch (e) {
+      say((e as Error).message);
+      return false;
+    }
+  };
+
+  const deleteAttachment = async (aid: string) => {
+    if (!selId) return;
+    try {
+      const data = await api<{ candidate: CandidateDetail }>(`/api/candidates/${selId}/attachments/${aid}`, { method: 'DELETE' });
+      applyDetail(data.candidate);
+      say('Załącznik usunięty');
+    } catch (e) {
+      say((e as Error).message);
+    }
+  };
+
   const remove = async () => {
     if (!selId) return;
     try {
@@ -637,6 +665,8 @@ export default function App() {
         onAttachCv={attachCv}
         onDelete={remove}
         onMerge={merge}
+        onAddAttachment={addAttachment}
+        onDeleteAttachment={deleteAttachment}
         onOpen={(id) => setSelId(id)}
       />
     ) : selId ? (

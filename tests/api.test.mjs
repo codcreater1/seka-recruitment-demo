@@ -328,6 +328,66 @@ test('notifications: only the administrator, validated, and sent to HR and the b
   assert.equal((await put('/api/admin/settings', { notify: { ...good, enabled: false } }, ADMIN)).status, 200);
 });
 
+
+test('attachments: upload, type check, download, permissions, ingest extras, delete', async () => {
+  const cand = (await candidates()).find((c) => c.city === 'Kraków');
+  const pdfBytes = seedFile('incoming/CV_weronika_adamska.pdf');
+  const upload = (id, bytes, name, kind, cookie) => {
+    const form = new FormData();
+    form.append('file', new Blob([bytes]), name);
+    if (kind) form.append('kind', kind);
+    return fetch(`${base}/api/candidates/${id}/attachments`, { method: 'POST', body: form, headers: { cookie: cookie ?? HR } });
+  };
+  assert.equal((await upload(cand.id, pdfBytes, 'list.pdf', 'cover', MANAGER)).status, 403);
+  assert.equal((await upload(cand.id, Buffer.from('MZ not a document'), 'x.pdf', 'cover')).status, 400);
+  assert.equal((await upload(cand.id, pdfBytes, 'list.pdf', 'nieznany')).status, 400);
+  const ok = await upload(cand.id, pdfBytes, 'List motywacyjny.pdf', 'cover');
+  assert.equal(ok.status, 201);
+  const body = await ok.json();
+  const att = body.attachment;
+  assert.equal(att.mime, 'application/pdf');
+  assert.equal(att.kind, 'cover');
+  assert.ok((await detail(cand.id)).attachments.some((a) => a.id === att.id));
+
+  const url = `${base}/api/candidates/${cand.id}/attachments/${att.id}`;
+  const got = await fetch(url, { headers: { cookie: HR } });
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get('content-type'), 'application/pdf');
+  assert.equal(got.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal((await got.arrayBuffer()).byteLength, pdfBytes.byteLength);
+  assert.equal((await fetch(url + '?download=1', { headers: { cookie: HR } })).status, 200);
+  assert.ok((await call('/api/audit')).body.entries.some((e) => e.action === 'download-attachment'));
+  // a branch manager of another city cannot reach it; without a session nothing is served
+  const other = (await candidates()).find((c) => c.city === 'Warszawa');
+  assert.equal((await fetch(`${base}/api/candidates/${other.id}/attachments/${att.id}`, { headers: { cookie: HR } })).status, 404);
+  assert.equal((await fetch(url, { headers: { cookie: MANAGER } })).status, 200);
+  assert.equal((await fetch(url)).status, 401);
+
+  // intake: the first PDF is the CV, the rest are kept as attachments
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+  const res = await post('/api/ingest', {
+    from: 'Ewa Zalacznikowa <ewa.zalacznikowa@example.net>',
+    subject: 'Aplikacja: Technik laboratoryjny (Gdańsk)',
+    attachments: [
+      { name: 'CV.pdf', contentBase64: pdfBytes.toString('base64') },
+      { name: 'certyfikat.png', contentBase64: png.toString('base64') },
+      { name: 'macro.exe', contentBase64: Buffer.from('MZ....').toString('base64') },
+    ],
+  }, null, { 'x-api-key': KEY });
+  assert.equal(res.status, 201);
+  const d = await detail(res.body.id);
+  assert.equal(d.file.name, 'CV.pdf');
+  assert.deepEqual(d.attachments.map((a) => [a.name, a.mime]), [['certyfikat.png', 'image/png']]);
+
+  // delete: the manager may not, HR may
+  const del = (cookie) => fetch(url, { method: 'DELETE', headers: { cookie } });
+  assert.equal((await del(MANAGER)).status, 403);
+  assert.equal((await del(HR)).status, 200);
+  assert.equal((await fetch(url, { headers: { cookie: HR } })).status, 404);
+  // deleting the profile removes its attachments too
+  assert.equal((await call(`/api/candidates/${res.body.id}`, { method: 'DELETE' })).status, 200);
+});
+
 test('every seeded CV is read back correctly', async () => {
   const seed = JSON.parse(fs.readFileSync(path.join(root, 'seed', 'seed.json'), 'utf8'));
   const failures = [];

@@ -177,6 +177,16 @@ export type CandidateListItem = {
   infoRequestedAt: string | null;
 };
 
+export const ATTACHMENT_KINDS = [
+  { id: 'cover', label: 'List motywacyjny' },
+  { id: 'certificate', label: 'Certyfikat / świadectwo' },
+  { id: 'other', label: 'Inny dokument' },
+] as const;
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number]['id'];
+export const isAttachmentKind = (v: unknown): v is AttachmentKind => ATTACHMENT_KINDS.some((k) => k.id === v);
+
+export type AttachmentDto = { id: string; kind: AttachmentKind; name: string; mime: string; size: number; addedAt: string; addedBy: string };
+
 export type CandidateDetail = CandidateListItem & {
   phone: string;
   channel: string;
@@ -186,6 +196,8 @@ export type CandidateDetail = CandidateListItem & {
   /** 0 = no clause found, 1 = recruitment, 2 = recruitment and future recruitments */
   rodo: 0 | 1 | 2;
   file: { name: string; size: number } | null;
+  /** Cover letter, certificates and other documents besides the CV. */
+  attachments: AttachmentDto[];
   rawText: string;
   retentionDate: string;
   notes: NoteDto[];

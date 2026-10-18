@@ -191,6 +191,6 @@ The prototype is Next.js and SQLite; SEKA's production stack is Laravel, Postgre
 - [ ] Optional LLM extraction of CV fields (rule-based parsing is used now)
 - [ ] OCR for scanned CVs
 - [ ] Outlook `.msg` import (`.eml` works)
-- [ ] Several attachments per application (cover letter, certificates)
+- [x] Several attachments per application (cover letter, certificates; PDF, JPG, PNG, CV tab → Załączniki)
 - [x] Merge duplicate profiles ("Połącz z poprzednim" on a flagged duplicate)
 - [x] Notifications to HR and managers (e-mail and Teams webhook; Administracja → Powiadomienia, off by default)

@@ -96,6 +96,17 @@ CREATE TABLE IF NOT EXISTS feedback (
   recommendation TEXT NOT NULL,
   comment TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY,
+  candidate_id TEXT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  added_at TEXT NOT NULL,
+  added_by TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_candidate ON attachments(candidate_id);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -294,9 +305,10 @@ export function getDb(): Database.Database {
  */
 export function resetDemoData() {
   const db = getDb();
-  db.exec('DELETE FROM notes; DELETE FROM events; DELETE FROM emails; DELETE FROM feedback; DELETE FROM candidates; DELETE FROM vacancies; DELETE FROM cv_fts; DELETE FROM audit_log;');
+  db.exec('DELETE FROM notes; DELETE FROM events; DELETE FROM emails; DELETE FROM feedback; DELETE FROM attachments; DELETE FROM candidates; DELETE FROM vacancies; DELETE FROM cv_fts; DELETE FROM audit_log;');
   try {
     for (const f of fs.readdirSync(FILES_DIR)) if (f.endsWith('.pdf')) fs.unlinkSync(path.join(FILES_DIR, f));
+    fs.rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
   } catch {
     /* folder missing: nothing to remove */
   }
@@ -318,6 +330,12 @@ export function resetDemoData() {
 
 export const newId = () => randomUUID();
 export const nowIso = () => new Date().toISOString();
+
+/** Extra documents (cover letter, certificates ...) live in their own folder, named by id only. */
+export const ATTACHMENTS_DIR = path.join(FILES_DIR, 'att');
+export function attachmentPath(id: string) {
+  return path.join(ATTACHMENTS_DIR, `${path.basename(id)}.bin`);
+}
 
 export function filePath(fileId: string) {
   return path.join(FILES_DIR, `${path.basename(fileId)}.pdf`);

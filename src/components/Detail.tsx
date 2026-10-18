@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import {
+  ATTACHMENT_KINDS,
   CITIES,
   EMAIL_TEMPLATE_LABEL,
   FEEDBACK_CRITERIA,
@@ -12,6 +13,7 @@ import {
   UNASSIGNED_CITY,
   UNKNOWN_POSITION,
   statusLabel,
+  type AttachmentKind,
   type CandidateDetail,
   type EmailTemplate,
   type Recommendation,
@@ -46,6 +48,8 @@ type Props = {
   onAttachCv: (file: File) => Promise<boolean>;
   onDelete: () => Promise<void>;
   onMerge: () => Promise<void>;
+  onAddAttachment: (file: File, kind: AttachmentKind) => Promise<boolean>;
+  onDeleteAttachment: (id: string) => Promise<void>;
   onOpen: (id: string) => void;
 };
 
@@ -56,13 +60,14 @@ const MAIL_STATUS: Record<string, string> = { sent: 'wysłano', simulated: 'symu
 const HIDDEN = '— ukryte (tryb anonimowy)';
 
 export default function Detail({
-  c, session, anon, vacancies, onBack, onClose, onPatch, onNote, onFeedback, onSendEmail, onAttachCv, onDelete, onMerge, onOpen,
+  c, session, anon, vacancies, onBack, onClose, onPatch, onNote, onFeedback, onSendEmail, onAttachCv, onDelete, onMerge, onAddAttachment, onDeleteAttachment, onOpen,
 }: Props) {
   const edit = session.canEdit;
   const [tab, setTab] = useState<Tab>('overview');
   const [note, setNote] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmMerge, setConfirmMerge] = useState(false);
+  const [attKind, setAttKind] = useState<AttachmentKind>('cover');
   const [fb, setFb] = useState<FeedbackInput>({ communication: 3, knowledge: 3, fit: 3, recommendation: 'warunkowo', comment: '' });
   const idx = PIPELINE.indexOf(c.status);
   const cityOptions = [UNASSIGNED_CITY, ...CITIES];
@@ -432,6 +437,59 @@ export default function Detail({
                 />
                 <span className="hint">Plik, który kandydat odesłał po prośbie o uzupełnienie. Miasto i stanowisko zostaną uzupełnione, jeśli da się je odczytać.</span>
               </div>
+            )}
+            <h3>Załączniki</h3>
+            {anon ? (
+              <p className="hint">W trybie anonimowym załączniki są ukryte, ponieważ mogą zawierać dane osobowe.</p>
+            ) : (
+              <>
+                {c.attachments.length ? (
+                  <ul className="notes">
+                    {c.attachments.map((a) => (
+                      <li key={a.id}>
+                        <div className="note-by">
+                          {ATTACHMENT_KINDS.find((k) => k.id === a.kind)?.label} · {fmtDate(a.addedAt)} · {a.addedBy === 'system' ? 'automatycznie z e-maila' : a.addedBy}
+                        </div>
+                        <p className="inline-row">
+                          <a href={`/api/candidates/${c.id}/attachments/${a.id}`} target="_blank" rel="noopener noreferrer">{a.name}</a>
+                          <span className="hint">{fmtSize(a.size)}</span>
+                          <a className="btn small link-btn" href={`/api/candidates/${c.id}/attachments/${a.id}?download=1`} download>Pobierz</a>
+                          {edit && (
+                            <button className="btn small danger" type="button" onClick={() => onDeleteAttachment(a.id)}>
+                              Usuń
+                            </button>
+                          )}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="hint">Brak załączników poza CV.</p>
+                )}
+                {edit && (
+                  <div className="attach">
+                    <label htmlFor="att-kind" className="hint">Rodzaj</label>
+                    <select id="att-kind" value={attKind} onChange={(e) => setAttKind(e.target.value as AttachmentKind)}>
+                      {ATTACHMENT_KINDS.map((k) => (
+                        <option key={k.id} value={k.id}>{k.label}</option>
+                      ))}
+                    </select>
+                    <label className="btn small primary" htmlFor="att-file">Dodaj załącznik…</label>
+                    <input
+                      id="att-file"
+                      type="file"
+                      accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg"
+                      hidden
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = '';
+                        if (f) await onAddAttachment(f, attKind);
+                      }}
+                    />
+                    <span className="hint">PDF, JPG lub PNG, do 10 MB, najwyżej 10 załączników.</span>
+                  </div>
+                )}
+              </>
             )}
           </section>
         )}

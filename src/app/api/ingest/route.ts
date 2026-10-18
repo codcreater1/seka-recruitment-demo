@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { badRequest, json } from '@/lib/auth';
-import { ingestApplication } from '@/lib/candidates';
+import { MAX_ATTACHMENTS, ingestApplication, sniffMime } from '@/lib/candidates';
 import { blockedFor, clientKey, recordFailure } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
@@ -49,19 +49,24 @@ export async function POST(req: Request) {
 
   let buffer: Uint8Array | undefined;
   let fileName: string | undefined;
+  const extras: { name: string; bytes: Uint8Array }[] = [];
   for (const att of Array.isArray(body.attachments) ? body.attachments : []) {
     if (!att || typeof att.contentBase64 !== 'string' || !att.contentBase64) continue;
     const bytes = new Uint8Array(Buffer.from(att.contentBase64, 'base64'));
     if (bytes.byteLength > MAX_BYTES) return badRequest('Załącznik jest większy niż 10 MB.');
-    if (String.fromCharCode(...bytes.slice(0, 4)) === '%PDF') {
+    const name = typeof att.name === 'string' && att.name ? att.name : '';
+    if (!buffer && String.fromCharCode(...bytes.slice(0, 4)) === '%PDF') {
+      // the first PDF is the CV, every other readable file is kept as an attachment
       buffer = bytes;
-      fileName = typeof att.name === 'string' && att.name ? att.name : 'CV.pdf';
-      break;
+      fileName = name || 'CV.pdf';
+    } else if (sniffMime(bytes) && extras.length < MAX_ATTACHMENTS) {
+      extras.push({ name: name || 'załącznik', bytes });
     }
   }
   const result = await ingestApplication({
     buffer,
     fileName,
+    extras,
     from: body.from,
     subject: typeof body.subject === 'string' ? body.subject : '',
     receivedAt: typeof body.receivedAt === 'string' ? body.receivedAt : undefined,
