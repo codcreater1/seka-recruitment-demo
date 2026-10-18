@@ -181,15 +181,17 @@ export function NewModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
 export function IssuesModal({ onClose }: { onClose: () => void }) {
   const items: [string, string][] = [
-    ['Skąd bierzemy miasto zgłoszenia?', 'Z ogłoszenia, tytułu wiadomości czy adresu kandydata? Przy każdym profilu widać, z czego miasto zostało ustalone. Gdy go nie da się ustalić, zgłoszenie trafia do „Do przypisania”.'],
+    ['Skąd bierzemy miasto zgłoszenia?', 'Z ogłoszenia, tytułu wiadomości czy adresu kandydata? Przy każdym profilu widać, z czego miasto zostało ustalone. Gdy go nie da się ustalić, zgłoszenie trafia do „Do przypisania” i kandydat jest proszony o wskazanie miasta.'],
     ['Jak wiadomości trafiają do systemu?', 'Przekierowanie z Power Automate (gotowy punkt /api/ingest), Microsoft Graph ograniczony do jednej skrzynki albo ręczne wgrywanie.'],
     ['Czy statusy odpowiadają procesowi HR?', 'Nowa, W weryfikacji, Rozmowa, Oferta, Zatrudniony/a, Odrzucona. Czy brakuje któregoś etapu?'],
-    ['Co mogą kierownicy oddziałów?', 'W demo: tylko własne miasto, podgląd i komentarze. Czy mają też zmieniać statusy i oceniać kandydatów?'],
-    ['RODO', 'Zgoda na przyszłe rekrutacje, okres przechowywania (w demo 6 miesięcy), usuwanie danych na żądanie, miejsce hostingu, umowa powierzenia.'],
-    ['Automatyczne odpowiedzi', 'Potwierdzenie przyjęcia wychodzi po otrzymaniu wiadomości, podziękowanie po odrzuceniu. W demo wiadomości są tylko zapisywane (bez SMTP). Czy mają wychodzić z systemu, czy zostają w Power Automate?'],
+    ['Role i uprawnienia', 'Trzy role: administrator (wszystko i ustawienia), HR manager (cała firma), kierownik oddziału (własne miasto: podgląd, komentarze, opinie). Czy kierownik ma też zmieniać statusy i oceniać kandydatów? Kto ma być administratorem?'],
+    ['RODO', 'Zgoda na przyszłe rekrutacje, okres przechowywania (w demo 6 miesięcy, zmienia go administrator), usuwanie danych na żądanie, miejsce hostingu, umowa powierzenia.'],
+    ['Brakujące dane w zgłoszeniu', 'Gdy brakuje CV, czytelnego pliku, miasta lub stanowiska, kandydat dostaje wiadomość z prośbą o uzupełnienie, a jego odpowiedź dopełnia ten sam profil. Czy ma to robić system, czy Power Automate? Co jeszcze uznać za brak (telefon, zgoda RODO)? Jak długo czekać na odpowiedź?'],
+    ['Automatyczne odpowiedzi', 'Potwierdzenie przyjęcia po otrzymaniu kompletnego zgłoszenia, podziękowanie po odrzuceniu. W demo wiadomości są tylko zapisywane (bez SMTP). Z jakiego adresu mają wychodzić i kto zatwierdza treść? Administrator może ją zmienić w ustawieniach.'],
     ['Ocena kandydatów', 'System nie ocenia ani nie szereguje kandydatów automatycznie (RODO, art. 22). Ocenę wpisuje osoba. Czy tak ma zostać?'],
-    ['Duplikaty', 'Jak traktować kandydata, który aplikuje wielokrotnie lub na kilka miast? Demo oznacza powtórzony adres e-mail.'],
-    ['Logowanie', 'Docelowo Microsoft Entra ID (SSO). W demo widok wybiera się z listy.'],
+    ['Duplikaty', 'Jak traktować kandydata, który aplikuje wielokrotnie lub na kilka miast? Demo oznacza powtórzony adres e-mail, a odpowiedź na prośbę o uzupełnienie dopełnia istniejący profil.'],
+    ['Logowanie', 'Microsoft Entra ID (SSO) jest zaimplementowane; w demo konto wybiera się na stronie logowania. Do podłączenia potrzebna jest rejestracja aplikacji w tenancie SEKA oraz role lub grupy dla administratora, HR i kierowników oddziałów.'],
+    ['Technologia i wdrożenie', 'Prototyp działa na Next.js i SQLite. Docelowo Laravel, Postgres i Docker (mapa w dokumentacji). Czy wdrożenie ma być w Azure, czy na serwerach SEKA?'],
   ];
   return (
     <Overlay onClose={onClose} label="Kwestie do omówienia">
