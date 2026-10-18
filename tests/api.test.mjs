@@ -722,7 +722,17 @@ test('GDPR: export and delete a profile, audit log, demo reset', async () => {
   assert.equal((await call('/api/candidates/' + target.id)).status, 404);
   const audit = (await call('/api/audit')).body.entries.map((e) => e.action);
   for (const a of ['export', 'delete', 'bulk-delete-expired', 'bulk-reject']) assert.ok(audit.includes(a), a);
+  const stranger = await ingest({ from: 'Ktos Do Usuniecia <ktos.do.usuniecia@example.com>', subject: 'Aplikacja – Księgowy (Poznań)' });
+  assert.equal((await call('/api/candidates/' + stranger.body.id)).status, 200);
   const reset = await post('/api/demo/reset', {}, ADMIN);
   assert.equal(reset.status, 200);
   assert.equal((await candidates()).length, 22);
+  assert.ok((await candidates()).every((c) => c.id.startsWith('seed-')), 'only the demo set is left');
+  assert.equal((await call('/api/candidates/' + stranger.body.id)).status, 404, 'the profile is gone');
+  assert.equal((await call('/api/candidates/' + stranger.body.id + '/file')).status, 404, 'and so is its file');
+  // a clean slate: the audit log of the earlier demo sessions is gone too, only the loading and the reset are noted
+  const left = (await call('/api/audit')).body.entries.map((e) => e.action).sort();
+  assert.deepEqual(left, ['demo-reset', 'seed']);
+  // configuration is not data: the settings stay
+  assert.equal((await call('/api/admin/settings', {}, ADMIN)).body.settings.retentionMonths, 6);
 });

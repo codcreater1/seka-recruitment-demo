@@ -287,16 +287,27 @@ export function getDb(): Database.Database {
   return db;
 }
 
-/** Demo only: throw away every profile and load the sample data again. */
+/**
+ * Demo only: throw away every profile, the audit log of the demo sessions and the CV files, and load the sample data
+ * again. The settings (message texts, switches, retention) are configuration, not data, and stay as they are.
+ * The database file is compacted afterwards, so the removed names and CV texts do not linger in it.
+ */
 export function resetDemoData() {
   const db = getDb();
-  db.exec('DELETE FROM notes; DELETE FROM events; DELETE FROM emails; DELETE FROM feedback; DELETE FROM candidates; DELETE FROM vacancies; DELETE FROM cv_fts;');
+  db.exec('DELETE FROM notes; DELETE FROM events; DELETE FROM emails; DELETE FROM feedback; DELETE FROM candidates; DELETE FROM vacancies; DELETE FROM cv_fts; DELETE FROM audit_log;');
   try {
     for (const f of fs.readdirSync(FILES_DIR)) if (f.endsWith('.pdf')) fs.unlinkSync(path.join(FILES_DIR, f));
   } catch {
     /* folder missing: nothing to remove */
   }
   seedDemo(db);
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    db.exec('VACUUM');
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  } catch {
+    /* compacting is a courtesy; the data is reset either way */
+  }
   void import('./search')
     .then((m) => {
       m.resetIndexState();
