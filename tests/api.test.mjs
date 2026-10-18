@@ -302,6 +302,32 @@ test('merging a duplicate moves notes and history to the older profile', async (
   assert.ok(kept.events.some((h) => h.text.startsWith('Połączono z duplikatem')));
 });
 
+
+test('notifications: only the administrator, validated, and sent to HR and the branch manager', async () => {
+  const put = send('PUT');
+  const good = { enabled: true, onNew: true, onInterview: true, hrEmails: ['hr@seka.example'], managerEmails: { Gdańsk: 'gdansk@seka.example' }, teamsWebhook: '' };
+  assert.equal((await put('/api/admin/settings', { notify: good }, HR)).status, 403);
+  assert.equal((await put('/api/admin/settings', { notify: { ...good, hrEmails: ['nie-adres'] } }, ADMIN)).status, 400);
+  assert.equal((await put('/api/admin/settings', { notify: { ...good, teamsWebhook: 'https://evil.example.com/hook' } }, ADMIN)).status, 400);
+  assert.equal((await put('/api/admin/settings', { notify: { ...good, teamsWebhook: 'http://x.webhook.office.com/hook' } }, ADMIN)).status, 400);
+  assert.equal((await put('/api/admin/settings', { notify: { ...good, managerEmails: { Atlantyda: 'a@b.pl' } } }, ADMIN)).status, 400);
+  assert.equal((await put('/api/admin/settings', { notify: good }, ADMIN)).status, 200);
+  assert.deepEqual((await call('/api/admin/settings', {}, ADMIN)).body.settings.notify.hrEmails, ['hr@seka.example']);
+
+  const res = await post('/api/ingest', { from: 'Nina Powiadomiona <nina.powiadomiona@example.net>', subject: 'Aplikacja: Technik laboratoryjny (Gdańsk)' }, null, { 'x-api-key': KEY });
+  assert.equal(res.status, 201);
+  let entry;
+  for (let i = 0; i < 20 && !entry; i++) {
+    entry = (await call('/api/audit')).body.entries.find((e) => e.action === 'notify' && e.detail.includes('Nina Powiadomiona'));
+    if (!entry) await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.ok(entry, 'notification was recorded');
+  assert.ok(entry.detail.includes('hr@seka.example') && entry.detail.includes('gdansk@seka.example'));
+  assert.equal(entry.detail.includes('krakow@'), false);
+
+  assert.equal((await put('/api/admin/settings', { notify: { ...good, enabled: false } }, ADMIN)).status, 200);
+});
+
 test('every seeded CV is read back correctly', async () => {
   const seed = JSON.parse(fs.readFileSync(path.join(root, 'seed', 'seed.json'), 'utf8'));
   const failures = [];

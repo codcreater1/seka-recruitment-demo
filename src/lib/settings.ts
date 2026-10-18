@@ -14,7 +14,22 @@ export type Settings = {
   poolRetentionMonths: number;
   /** The administrator's own wording; a template that is not listed uses the default text. */
   templates: Partial<Record<EmailTemplate, TemplateOverride>>;
+  /** Notifications to HR and branch managers (e-mail and/or a Teams webhook). Off until the administrator switches it on. */
+  notify: NotifySettings;
 };
+
+export type NotifySettings = {
+  enabled: boolean;
+  onNew: boolean;
+  onInterview: boolean;
+  /** Receive every city. */
+  hrEmails: string[];
+  /** One address per city for its branch manager. */
+  managerEmails: Record<string, string>;
+  teamsWebhook: string;
+};
+
+const NOTIFY_DEFAULTS = (): NotifySettings => ({ enabled: false, onNew: true, onInterview: true, hrEmails: [], managerEmails: {}, teamsWebhook: '' });
 
 const DEFAULTS = (): Settings => ({
   autoAck: true,
@@ -22,6 +37,7 @@ const DEFAULTS = (): Settings => ({
   retentionMonths: RETENTION_MONTHS,
   poolRetentionMonths: POOL_RETENTION_MONTHS,
   templates: {},
+  notify: NOTIFY_DEFAULTS(),
 });
 
 let cache: Settings | null = null;
@@ -36,7 +52,9 @@ function load(): Settings {
       else if (r.key === 'autoMissing' && typeof v === 'boolean') out.autoMissing = v;
       else if (r.key === 'retentionMonths' && Number.isInteger(v) && v >= 1 && v <= 240) out.retentionMonths = v;
       else if (r.key === 'poolRetentionMonths' && Number.isInteger(v) && v >= 1 && v <= 240) out.poolRetentionMonths = v;
-      else if (r.key.startsWith('template.')) {
+      else if (r.key === 'notify' && v && typeof v === 'object') {
+        out.notify = { ...NOTIFY_DEFAULTS(), ...v };
+      } else if (r.key.startsWith('template.')) {
         const id = r.key.slice('template.'.length) as EmailTemplate;
         if (EMAIL_TEMPLATE_IDS.includes(id) && v && typeof v === 'object') {
           out.templates[id] = {
@@ -69,6 +87,7 @@ function put(key: string, value: unknown, actor: string) {
 export type SettingsPatch = Partial<Pick<Settings, 'autoAck' | 'autoMissing' | 'retentionMonths' | 'poolRetentionMonths'>> & {
   /** null restores the default text of that message. */
   templates?: Partial<Record<EmailTemplate, TemplateOverride | null>>;
+  notify?: NotifySettings;
 };
 
 /** Writes validated changes; returns what changed, as short phrases for the audit log. */
@@ -86,6 +105,10 @@ export function updateSettings(patch: SettingsPatch, actor: string): string[] {
       put(key, patch[key], actor);
       changed.push(`${key}=${patch[key]}`);
     }
+  }
+  if (patch.notify && JSON.stringify(patch.notify) !== JSON.stringify(now.notify)) {
+    put('notify', patch.notify, actor);
+    changed.push(`powiadomienia: ${patch.notify.enabled ? 'włączone' : 'wyłączone'}`);
   }
   for (const id of EMAIL_TEMPLATE_IDS) {
     const t = patch.templates?.[id];

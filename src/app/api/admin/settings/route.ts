@@ -2,6 +2,7 @@ import { DEMO_ACCOUNTS, authMode, badRequest, json, requireAdmin } from '@/lib/a
 import { audit, POOL_RETENTION_MONTHS, RETENTION_MONTHS } from '@/lib/db';
 import { CITIES, DEFAULT_TEMPLATES, EMAIL_TEMPLATE_IDS, POSITIONS, ROLE_LABEL, STATUSES, type EmailTemplate } from '@/lib/domain';
 import { smtpConfigured } from '@/lib/mailer';
+import { isEmail, isTeamsWebhook } from '@/lib/notify';
 import { getSettings, updateSettings, type SettingsPatch } from '@/lib/settings';
 import { APP_TIMEZONE } from '@/lib/time';
 
@@ -35,6 +36,7 @@ export async function GET() {
       autoMissing: settings.autoMissing,
       retentionMonths: settings.retentionMonths,
       poolRetentionMonths: settings.poolRetentionMonths,
+      notify: settings.notify,
     },
     templates: EMAIL_TEMPLATE_IDS.map((id) => {
       const base = DEFAULT_TEMPLATES[id];
@@ -92,6 +94,31 @@ export async function PUT(req: Request) {
       }
       patch[key] = v;
     }
+  }
+  if ('notify' in body) {
+    const n = body.notify as Record<string, unknown> | null;
+    if (!n || typeof n !== 'object' || Array.isArray(n)) return badRequest('Nieprawidłowe ustawienia powiadomień.');
+    if (typeof n.enabled !== 'boolean' || typeof n.onNew !== 'boolean' || typeof n.onInterview !== 'boolean') {
+      return badRequest('Przełączniki powiadomień muszą mieć wartość tak lub nie.');
+    }
+    const hrEmails = Array.isArray(n.hrEmails) ? n.hrEmails.map((x) => String(x).trim()).filter(Boolean) : null;
+    if (!hrEmails || hrEmails.length > 20 || !hrEmails.every((x) => isEmail(x) && x.length <= 200)) {
+      return badRequest('Adresy e-mail HR są nieprawidłowe (najwyżej 20).');
+    }
+    const managerEmails: Record<string, string> = {};
+    const raw = n.managerEmails && typeof n.managerEmails === 'object' && !Array.isArray(n.managerEmails) ? (n.managerEmails as Record<string, unknown>) : {};
+    for (const [city, value] of Object.entries(raw)) {
+      const v = typeof value === 'string' ? value.trim() : '';
+      if (!v) continue;
+      if (!(CITIES as readonly string[]).includes(city)) return badRequest('Nieznany oddział.');
+      if (!isEmail(v) || v.length > 200) return badRequest(`Nieprawidłowy adres e-mail kierownika: ${city}.`);
+      managerEmails[city] = v;
+    }
+    const teamsWebhook = typeof n.teamsWebhook === 'string' ? n.teamsWebhook.trim() : '';
+    if (teamsWebhook && (teamsWebhook.length > 2000 || !isTeamsWebhook(teamsWebhook))) {
+      return badRequest('Adres webhooka Teams musi zaczynać się od https:// i wskazywać usługę Microsoft (webhook.office.com, logic.azure.com lub powerplatform.com).');
+    }
+    patch.notify = { enabled: n.enabled, onNew: n.onNew, onInterview: n.onInterview, hrEmails, managerEmails, teamsWebhook };
   }
   if ('templates' in body) {
     const t = body.templates;

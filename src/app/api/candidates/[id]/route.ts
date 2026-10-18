@@ -2,6 +2,7 @@ import { addEvent, audit, getDb } from '@/lib/db';
 import { badRequest, json, notFound, requireEditor, requireSession } from '@/lib/auth';
 import { deleteCandidate, getCandidate, getRow, listVacancies, vacancyExists } from '@/lib/candidates';
 import { isCity, isPosition, isStatus, statusLabel } from '@/lib/domain';
+import { notifyEvent } from '@/lib/notify';
 import { indexCandidate } from '@/lib/search';
 import { isLocalDateTime } from '@/lib/time';
 
@@ -92,6 +93,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (set.length) {
     getDb().prepare(`UPDATE candidates SET ${set.join(', ')} WHERE id = ?`).run(...args, id);
     events.forEach((e) => addEvent(id, session.name, e));
+    if (typeof body.interviewAt === 'string' && body.interviewAt !== row.interview_at) {
+      const fresh = getRow(session, id);
+      if (fresh) void notifyEvent('interview', fresh);
+    }
     if (set.some((x) => x.startsWith('position'))) {
       const fresh = getRow(session, id);
       if (fresh) indexCandidate(id, fresh.name, fresh.position, fresh.raw_text);

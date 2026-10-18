@@ -23,6 +23,7 @@ import { detectCity, detectPosition, extractPdfText, parseCv, parseSender, type 
 import { analyzeCv } from './analyze';
 import { deliver, type MailAttachment } from './mailer';
 import { buildIcs } from './ics';
+import { notifyEvent } from './notify';
 import { indexCandidate, removeFromIndex } from './search';
 import { getSettings, writeTemplate } from './settings';
 import { isLocalDateTime, localNow } from './time';
@@ -375,6 +376,7 @@ export async function ingestApplication(rawInput: IngestInput): Promise<IngestRe
   run();
 
   const row = db.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as Row;
+  void notifyEvent('new', row);
   const missing = computeMissing(row);
   let infoRequested = false;
   if (input.autoAck && email) {

@@ -193,4 +193,4 @@ The prototype is Next.js and SQLite; SEKA's production stack is Laravel, Postgre
 - [ ] Outlook `.msg` import (`.eml` works)
 - [ ] Several attachments per application (cover letter, certificates)
 - [x] Merge duplicate profiles ("Połącz z poprzednim" on a flagged duplicate)
-- [ ] Notifications to HR and managers (e-mail or Teams webhook)
+- [x] Notifications to HR and managers (e-mail and Teams webhook; Administracja → Powiadomienia, off by default)

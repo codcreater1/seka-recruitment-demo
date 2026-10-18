@@ -14,8 +14,16 @@ type TemplateInfo = {
   body: string;
   customized: boolean;
 };
+type NotifyForm = {
+  enabled: boolean;
+  onNew: boolean;
+  onInterview: boolean;
+  hrEmails: string[];
+  managerEmails: Record<string, string>;
+  teamsWebhook: string;
+};
 type AdminData = {
-  settings: { autoAck: boolean; autoMissing: boolean; retentionMonths: number; poolRetentionMonths: number };
+  settings: { autoAck: boolean; autoMissing: boolean; retentionMonths: number; poolRetentionMonths: number; notify: NotifyForm };
   templates: TemplateInfo[];
   directory: { id: string; name: string; email: string; role: Role; roleLabel: string; city: string | null; entraRole: string }[];
   roles: { label: string; scope: string }[];
@@ -40,11 +48,15 @@ export default function Admin({ onSaved, onRetentionChanged }: { onSaved: (msg: 
   const [body, setBody] = useState('');
   const [months, setMonths] = useState({ retention: 6, pool: 24 });
   const [busy, setBusy] = useState(false);
+  const [nf, setNf] = useState<NotifyForm>({ enabled: false, onNew: true, onInterview: true, hrEmails: [], managerEmails: {}, teamsWebhook: '' });
+  const [hrText, setHrText] = useState('');
 
   const load = useCallback(async () => {
     const d = await api<AdminData>('/api/admin/settings');
     setData(d);
     setMonths({ retention: d.settings.retentionMonths, pool: d.settings.poolRetentionMonths });
+    setNf(d.settings.notify);
+    setHrText(d.settings.notify.hrEmails.join('\n'));
     return d;
   }, []);
 
@@ -152,6 +164,64 @@ export default function Admin({ onSaved, onRetentionChanged }: { onSaved: (msg: 
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Powiadomienia dla HR i kierowników</h2>
+        <div className="toggles">
+          <label className="switch" htmlFor="nf-enabled">
+            <input id="nf-enabled" type="checkbox" checked={nf.enabled} onChange={(e) => setNf({ ...nf, enabled: e.target.checked })} />
+            <span>Włącz powiadomienia</span>
+          </label>
+          <label className="switch" htmlFor="nf-new">
+            <input id="nf-new" type="checkbox" checked={nf.onNew} onChange={(e) => setNf({ ...nf, onNew: e.target.checked })} />
+            <span>Nowe zgłoszenie</span>
+          </label>
+          <label className="switch" htmlFor="nf-interview">
+            <input id="nf-interview" type="checkbox" checked={nf.onInterview} onChange={(e) => setNf({ ...nf, onInterview: e.target.checked })} />
+            <span>Ustalono termin rozmowy</span>
+          </label>
+        </div>
+        <div className="form">
+          <div className="field">
+            <label htmlFor="nf-hr">E-maile HR (wszystkie oddziały), jeden w wierszu</label>
+            <textarea id="nf-hr" rows={3} value={hrText} onChange={(e) => setHrText(e.target.value)} />
+          </div>
+          {data.dictionaries.cities.map((city) => (
+            <div className="field" key={city}>
+              <label htmlFor={`nf-city-${city}`}>Kierownik oddziału: {city}</label>
+              <input
+                id={`nf-city-${city}`}
+                type="email"
+                value={nf.managerEmails[city] ?? ''}
+                onChange={(e) => setNf({ ...nf, managerEmails: { ...nf.managerEmails, [city]: e.target.value } })}
+              />
+            </div>
+          ))}
+          <div className="field">
+            <label htmlFor="nf-teams">Webhook Teams (opcjonalnie)</label>
+            <input id="nf-teams" type="url" value={nf.teamsWebhook} placeholder="https://…webhook.office.com/… lub …logic.azure.com/…" onChange={(e) => setNf({ ...nf, teamsWebhook: e.target.value })} />
+          </div>
+          <p className="hint">
+            Powiadomienie zawiera imię i nazwisko, stanowisko, oddział i odnośnik do profilu, bez treści CV. Kierownik dostaje tylko zgłoszenia ze
+            swojego oddziału. {data.integrations.smtpConfigured ? '' : 'Serwer SMTP nie jest skonfigurowany: e-maile są tylko zapisywane w dzienniku („symulacja”).'}
+          </p>
+          <div className="inline-row">
+            <button
+              className="btn small primary"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                save(
+                  { notify: { ...nf, hrEmails: hrText.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean) } },
+                  'Ustawienia powiadomień zapisane',
+                )
+              }
+            >
+              Zapisz powiadomienia
+            </button>
+          </div>
         </div>
       </section>
 
