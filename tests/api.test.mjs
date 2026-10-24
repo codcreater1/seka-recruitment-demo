@@ -166,7 +166,7 @@ test('summary numbers and attention list', async () => {
   assert.equal(stats.perWeek.length, 8);
   assert.equal(stats.attention.needsReview, 1);
   assert.equal(stats.attention.missingInfo, 1, 'one seeded application has no city');
-  assert.equal(stats.attention.duplicates, 1);
+  assert.equal(stats.attention.duplicates, 0, 'the seeded repeat applies elsewhere, so it is another application, not a duplicate');
   assert.equal(stats.attention.stale, 2);
   assert.equal(stats.attention.retentionDue, 2);
   assert.equal(stats.attention.emptyVacancies, 2);
@@ -265,11 +265,13 @@ test('e-mail intake: key, PDF, vacancy link, duplicates, missing attachment', as
   const nd = await detail(none.body.id);
   assert.equal(nd.city, 'Do przypisania');
   assert.equal(nd.needsReview, true);
-  // the same address again: flagged as a possible duplicate of the complete profile
+  // the same address applying elsewhere is the same person with one more application, not a duplicate
   const dup = await post('/api/ingest', { from: 'weronika.adamska@example.com', subject: 'Jeszcze raz (Gdańsk)' }, null, headers);
   const dd = await detail(dup.body.id);
-  assert.equal(dd.duplicateOf, res.body.id);
+  assert.equal(dd.duplicateOf, null);
   assert.equal(dd.city, 'Gdańsk');
+  assert.ok(dd.otherApplications.some((o) => o.id === res.body.id), 'linked to the person\'s other application');
+  assert.equal((await detail(res.body.id)).applicationCount, 2);
   // ... but the answer of someone who was asked for missing data completes that profile instead
   const answer = await post('/api/ingest', { from: 'jan.testowy@example.com', subject: 'Odpowiedź (Gdańsk)' }, null, headers);
   assert.equal(answer.body.merged, true);
@@ -278,30 +280,47 @@ test('e-mail intake: key, PDF, vacancy link, duplicates, missing attachment', as
 });
 
 
+test('one person, several applications: linked by e-mail, scoped to what the viewer may see', async () => {
+  const anna = (await candidates()).filter((c) => c.email === 'anna.kowalczyk@example.com');
+  assert.equal(anna.length, 2);
+  assert.ok(anna.every((c) => c.applicationCount === 2 && c.duplicateOf === null));
+  const warsaw = anna.find((c) => c.city === 'Warszawa');
+  const krakow = anna.find((c) => c.city === 'Kraków');
+  const d = await detail(krakow.id);
+  assert.deepEqual(d.otherApplications.map((o) => [o.id, o.city, o.position]), [[warsaw.id, 'Warszawa', warsaw.position]]);
+  assert.ok(d.events.some((e) => e.text.startsWith('Ta osoba ma już')));
+  // the Kraków branch manager sees the Kraków application only, with no hint of the other one
+  const mine = await detail(krakow.id, MANAGER);
+  assert.deepEqual(mine.otherApplications, []);
+  assert.equal(mine.applicationCount, 1);
+  assert.equal((await candidates(MANAGER)).find((c) => c.id === krakow.id).applicationCount, 1);
+  // a repeat for the same city and position is a duplicate and can be merged without losing anything
+  const again = await post('/api/ingest', { from: 'anna.kowalczyk@example.com', subject: 'Aplikacja: Młodszy specjalista ds. raportowania (Kraków)' }, null, { 'x-api-key': KEY });
+  const rep = await detail(again.body.id);
+  assert.equal(rep.duplicateOf, krakow.id);
+  assert.equal(rep.otherApplications.length, 2);
+  assert.equal((await post(`/api/candidates/${again.body.id}/merge`, {})).status, 200);
+  assert.equal((await detail(krakow.id)).otherApplications.length, 1);
+});
+
 test('merging a duplicate moves notes and history to the older profile', async () => {
   const headers = { 'x-api-key': KEY };
-  const pdf = seedFile('incoming/CV_weronika_adamska.pdf').toString('base64');
-  // a complete application from an address that already has profiles is flagged as a duplicate of the latest one
-  const second = await post('/api/ingest', {
-    from: 'Weronika Adamska <weronika.adamska@example.com>',
-    subject: 'Aplikacja: Technik laboratoryjny (Kraków)',
-    attachments: [{ name: 'CV.pdf', contentBase64: pdf }],
-  }, null, headers);
-  const first = { body: { id: (await detail(second.body.id)).duplicateOf } };
-  assert.ok(first.body.id, 'flagged as a duplicate');
+  const original = (await candidates()).find((c) => c.email === 'anna.kowalczyk@example.com' && c.city === 'Warszawa');
+  // the same person, city and position again (no CV, so nobody is waiting for an answer)
+  const second = await post('/api/ingest', { from: 'anna.kowalczyk@example.com', subject: 'Aplikacja: ' + original.position + ' (Warszawa)' }, null, headers);
+  assert.equal((await detail(second.body.id)).duplicateOf, original.id);
   assert.equal((await post(`/api/candidates/${second.body.id}/notes`, { text: 'Notatka na duplikacie' })).status, 201);
   // only HR may merge, and a profile that is not a duplicate cannot be merged
   assert.equal((await post(`/api/candidates/${second.body.id}/merge`, {}, MANAGER)).status >= 400, true);
-  assert.equal((await post(`/api/candidates/${first.body.id}/merge`, {})).status, 400);
+  assert.equal((await post(`/api/candidates/${original.id}/merge`, {})).status, 400);
   const res = await post(`/api/candidates/${second.body.id}/merge`, {});
   assert.equal(res.status, 200);
-  assert.equal(res.body.targetId, first.body.id);
+  assert.equal(res.body.targetId, original.id);
   assert.equal((await call('/api/candidates/' + second.body.id)).status, 404);
-  const kept = await detail(first.body.id);
+  const kept = await detail(original.id);
   assert.ok(kept.notes.some((n) => n.text === 'Notatka na duplikacie'));
   assert.ok(kept.events.some((h) => h.text.startsWith('Połączono z duplikatem')));
 });
-
 
 test('notifications: only the administrator, validated, and sent to HR and the branch manager', async () => {
   const put = send('PUT');

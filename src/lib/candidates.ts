@@ -61,11 +61,11 @@ export function computeMissing(r: Pick<Row, 'file_id' | 'cv_state' | 'city' | 'p
   return out;
 }
 
-function toItem(r: Row): CandidateListItem {
+function toItem(r: Row, applicationCount = 1): CandidateListItem {
   return {
     id: r.id, name: r.name, email: r.email, city: r.city, position: r.position, status: r.status,
     receivedAt: r.received_at, rating: r.rating, interviewAt: r.interview_at, needsReview: !!r.needs_review,
-    duplicateOf: r.duplicate_of, retentionDue: retention(r).retentionDue,
+    duplicateOf: r.duplicate_of, applicationCount, retentionDue: retention(r).retentionDue,
     rejectionSent: !!r.rejection_sent, consentFuture: r.rodo === 2, vacancyId: r.vacancy_id,
     missing: computeMissing(r), infoRequestedAt: r.info_requested_at,
   };
@@ -79,7 +79,10 @@ function scopeSql(s: Session) {
 export function listCandidates(s: Session): CandidateListItem[] {
   const { where, args } = scopeSql(s);
   const rows = getDb().prepare(`SELECT * FROM candidates ${where} ORDER BY received_at DESC`).all(...args) as Row[];
-  return rows.map(toItem);
+  const counts = new Map(
+    (getDb().prepare(`SELECT lower(email) AS e, COUNT(*) AS n FROM candidates ${where ? where + " AND" : "WHERE"} email <> '' GROUP BY lower(email)`).all(...args) as { e: string; n: number }[]).map((x) => [x.e, x.n]),
+  );
+  return rows.map((r) => toItem(r, counts.get(r.email.toLowerCase()) ?? 1));
 }
 
 export function getRow(s: Session, id: string): Row | undefined {
@@ -87,6 +90,16 @@ export function getRow(s: Session, id: string): Row | undefined {
   if (!row) return undefined;
   if (s.city && row.city !== s.city) return undefined;
   return row;
+}
+
+/** The same person's other applications (same e-mail address), limited to what the session may see. */
+function otherApplications(s: Session, row: Row): CandidateDetail['otherApplications'] {
+  if (!row.email) return [];
+  const { where, args } = scopeSql(s);
+  const rows = getDb()
+    .prepare(`SELECT id, city, position, status, received_at, duplicate_of FROM candidates ${where ? where + ' AND' : 'WHERE'} lower(email) = lower(?) AND id <> ? ORDER BY received_at DESC`)
+    .all(...args, row.email, row.id) as { id: string; city: string; position: string; status: StatusId; received_at: string; duplicate_of: string | null }[];
+  return rows.map((r) => ({ id: r.id, city: r.city, position: r.position, status: r.status, receivedAt: r.received_at, duplicate: !!r.duplicate_of }));
 }
 
 export async function getCandidate(s: Session, id: string): Promise<CandidateDetail | undefined> {
@@ -112,10 +125,11 @@ export async function getCandidate(s: Session, id: string): Promise<CandidateDet
     .all(id) as FeedbackDto[];
   const vacancy = row.vacancy_id ? (listVacancies({ ...s, city: null }).find((v) => v.id === row.vacancy_id) ?? null) : null;
   const ret = retention(row);
+  const siblings = otherApplications(s, row);
   return {
-    ...toItem(row),
+    ...toItem(row, siblings.length + 1),
     phone: row.phone, channel: row.channel, from: row.from_addr, subject: row.subject, cityBasis: row.city_basis,
-    rodo: row.rodo, attachments: listAttachments(id), file: row.file_id ? { name: row.file_name || 'CV.pdf', size: row.file_size || 0 } : null,
+    rodo: row.rodo, otherApplications: siblings, attachments: listAttachments(id), file: row.file_id ? { name: row.file_name || 'CV.pdf', size: row.file_size || 0 } : null,
     rawText: row.raw_text, retentionDate: ret.retentionDate, notes, events, emails,
     profile: analyzeCv(row.raw_text), vacancy, feedback,
     rejectionPreview: writeTemplate('rejection', { position: row.position }).body,
@@ -411,8 +425,10 @@ export async function ingestApplication(rawInput: IngestInput): Promise<IngestRe
   const needsReview = !parsed || !parsed.name || city === UNASSIGNED_CITY || position === UNKNOWN_POSITION || !email;
 
   const dup = email
-    ? (db.prepare('SELECT id FROM candidates WHERE lower(email) = lower(?) ORDER BY received_at DESC LIMIT 1').get(email) as { id: string } | undefined)
+    ? (db.prepare('SELECT id FROM candidates WHERE lower(email) = lower(?) AND city = ? AND position = ? ORDER BY received_at DESC LIMIT 1').get(email, city, position) as { id: string } | undefined)
     : undefined;
+  // the same person applying elsewhere or for another position is not a duplicate: it is one more application of that person
+  const sameCount = email ? (db.prepare('SELECT COUNT(*) AS n FROM candidates WHERE lower(email) = lower(?)').get(email) as { n: number }).n : 0;
 
   const id = newId();
   const receivedAt = input.receivedAt && !Number.isNaN(Date.parse(input.receivedAt)) ? new Date(input.receivedAt).toISOString() : nowIso();
@@ -443,7 +459,8 @@ export async function ingestApplication(rawInput: IngestInput): Promise<IngestRe
           ? 'Utworzono profil z danych nadawcy (wiadomość bez załącznika PDF)'
           : 'Utworzono profil z danych nadawcy (nie udało się odczytać pliku CV)',
     );
-    if (dup) ev('system', 'Wykryto możliwy duplikat: ten adres e-mail ma już profil w systemie');
+    if (dup) ev('system', 'Wykryto możliwy duplikat: ta osoba złożyła już zgłoszenie na to samo stanowisko w tym mieście');
+    else if (sameCount) ev('system', `Ta osoba ma już ${sameCount} inne zgłoszenie w systemie (powiązane po adresie e-mail)`);
     audit(input.actor, 'ingest', `${input.channel}: ${name} (${city})`);
     indexCandidate(id, name, position, rawText);
     const open = db

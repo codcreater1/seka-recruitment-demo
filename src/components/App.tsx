@@ -987,6 +987,7 @@ export default function App() {
                             {c.missing.length > 0 && <span className="badge">{c.infoRequestedAt ? 'Czeka na uzupełnienie' : 'Brakuje danych'}</span>}
                             {c.needsReview && <span className="badge">Do sprawdzenia</span>}
                             {c.duplicateOf && <span className="badge">Możliwy duplikat</span>}
+                            {c.applicationCount > 1 && <span className="badge info">{c.applicationCount} zgłoszenia</span>}
                             {c.retentionDue && <span className="badge">Minął okres przechowywania</span>}
                             {c.status === 'interview' && c.interviewAt && (
                               <span className="badge info">Rozmowa: {fmtInterview(c.interviewAt)}</span>

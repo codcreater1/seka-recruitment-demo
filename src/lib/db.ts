@@ -243,7 +243,9 @@ function seedDemo(db: Database.Database) {
           : 'Wysłano potwierdzenie przyjęcia zgłoszenia (automatyczna odpowiedź, symulacja)',
       );
       if (c.duplicateOf) {
-        insE.run(c.id, new Date(received + 3 * 6e4).toISOString(), 'system', 'Wykryto możliwy duplikat: ten adres e-mail ma już profil w systemie');
+        insE.run(c.id, new Date(received + 3 * 6e4).toISOString(), 'system', 'Wykryto możliwy duplikat: ta osoba złożyła już zgłoszenie na to samo stanowisko w tym mieście');
+      } else if (seed.candidates.some((o, j) => j < i && o.email && o.email.toLowerCase() === c.email.toLowerCase())) {
+        insE.run(c.id, new Date(received + 3 * 6e4).toISOString(), 'system', 'Ta osoba ma już inne zgłoszenie w systemie (powiązane po adresie e-mail)');
       }
       let prev: StatusId = 'new';
       (PATHS[c.status] || []).forEach((st, k) => {

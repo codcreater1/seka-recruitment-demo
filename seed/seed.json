@@ -463,7 +463,7 @@
       "subject": "Aplikacja na stanowisko: Młodszy specjalista ds. raportowania",
       "cityBasis": "ogłoszenia (wybrane stanowisko)",
       "needsReview": false,
-      "duplicateOf": "seed-00",
+      "duplicateOf": null,
       "rodo": true,
       "file": "cv/seed-21.pdf",
       "downloadName": "CV_anna_kowalczyk.pdf",

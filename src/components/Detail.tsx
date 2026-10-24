@@ -142,7 +142,7 @@ export default function Detail({
       )}
       {c.duplicateOf && (
         <div className="banner">
-          <span>Ten adres e-mail ma już profil w systemie.</span>
+          <span>To zgłoszenie powtarza wcześniejsze tej osoby (to samo miasto i stanowisko). Można je połączyć.</span>
           <span className="inline-row">
             <button className="btn small" type="button" onClick={() => onOpen(c.duplicateOf as string)}>Pokaż poprzedni profil</button>
             {edit && (
@@ -161,6 +161,21 @@ export default function Detail({
             )}
           </span>
         </div>
+      )}
+      {c.otherApplications.length > 0 && (
+        <section className="sec" aria-label="Inne zgłoszenia tej osoby">
+          <h3>Inne zgłoszenia tej osoby ({c.otherApplications.length})</h3>
+          <ul className="notes">
+            {c.otherApplications.map((o) => (
+              <li key={o.id}>
+                <button className="btn small link-btn" type="button" onClick={() => onOpen(o.id)}>
+                  {o.position} · {o.city}
+                </button>{' '}
+                <span className="hint">{statusLabel(o.status)} · {fmtDate(o.receivedAt)}{o.duplicate ? ' · powtórzenie' : ''}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {c.retentionDue && (
         <div className="banner">

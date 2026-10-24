@@ -165,7 +165,10 @@ export type CandidateListItem = {
   rating: number | null;
   interviewAt: string | null;
   needsReview: boolean;
+  /** Repeats an earlier application of the same person (same city and position): can be merged. */
   duplicateOf: string | null;
+  /** All applications of this person (same e-mail address) that the viewer may see, this one included. */
+  applicationCount: number;
   retentionDue: boolean;
   rejectionSent: boolean;
   /** The CV contains consent for future recruitments: the candidate is part of the talent pool. */
@@ -187,6 +190,9 @@ export const isAttachmentKind = (v: unknown): v is AttachmentKind => ATTACHMENT_
 
 export type AttachmentDto = { id: string; kind: AttachmentKind; name: string; mime: string; size: number; addedAt: string; addedBy: string };
 
+/** Another application of the same person. */
+export type SiblingApplication = { id: string; city: string; position: string; status: StatusId; receivedAt: string; duplicate: boolean };
+
 export type CandidateDetail = CandidateListItem & {
   phone: string;
   channel: string;
@@ -196,6 +202,8 @@ export type CandidateDetail = CandidateListItem & {
   /** 0 = no clause found, 1 = recruitment, 2 = recruitment and future recruitments */
   rodo: 0 | 1 | 2;
   file: { name: string; size: number } | null;
+  /** The person's other applications (other cities or positions) that the viewer may see. */
+  otherApplications: SiblingApplication[];
   /** Cover letter, certificates and other documents besides the CV. */
   attachments: AttachmentDto[];
   rawText: string;
