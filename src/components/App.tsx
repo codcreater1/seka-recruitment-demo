@@ -4,7 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CITIES,
   ROLE_LABEL,
-  STATUSES,
+  statusKind,
+  statusList,
+  setStatusList,
+  type StatusDef,
   UNASSIGNED_CITY,
   norm,
   statusLabel,
@@ -134,7 +137,8 @@ export default function App() {
   }, []);
 
   const loadSession = useCallback(async () => {
-    const data = await api<{ session: Session; accounts: RoleOption[]; authMode: 'demo' | 'entra' }>('/api/session');
+    const data = await api<{ session: Session; accounts: RoleOption[]; authMode: 'demo' | 'entra'; statuses: StatusDef[] }>('/api/session');
+    setStatusList(data.statuses);
     setSession(data.session);
     setRoles(data.accounts);
     setAuthMode(data.authMode);
@@ -632,7 +636,7 @@ export default function App() {
 
   const total = items.length;
   const countFor = (o: { city?: string; status?: string }) => items.filter((c) => matches(c, o)).length;
-  const pickedRejectable = [...picked].filter((id) => items.find((c) => c.id === id && c.status !== 'rejected'));
+  const pickedRejectable = [...picked].filter((id) => items.find((c) => c.id === id && statusKind(c.status) !== 'rejected'));
   const vacancyLabel = vacancyFilter ? vacancies?.find((v) => v.id === vacancyFilter) : null;
 
   const guideSteps: GuideStep[] = [
@@ -914,7 +918,7 @@ export default function App() {
                 <div className="list-head">
                   <select id="status" aria-label="Status zgłoszenia" value={status} onChange={(e) => setStatus(e.target.value as 'all' | StatusId)}>
                     <option value="all">Wszystkie statusy ({countFor({ status: 'all' })})</option>
-                    {STATUSES.map((s) => (
+                    {statusList().map((s) => (
                       <option key={s.id} value={s.id}>{s.label} ({countFor({ status: s.id })})</option>
                     ))}
                   </select>
@@ -982,14 +986,14 @@ export default function App() {
                         <span className="row-meta" title={`${c.position} · ${c.city}`}>{c.position} · {c.city}</span>
                         <span className="row-date">{rel(c.receivedAt)}</span>
                         {hits[c.id] && !anon && <span className="row-snippet">{hits[c.id]}</span>}
-                        {(c.needsReview || c.missing.length > 0 || c.duplicateOf || c.retentionDue || (c.status === 'interview' && c.interviewAt)) && (
+                        {(c.needsReview || c.missing.length > 0 || c.duplicateOf || c.retentionDue || (statusKind(c.status) === 'interview' && c.interviewAt)) && (
                           <span className="row-badges">
                             {c.missing.length > 0 && <span className="badge">{c.infoRequestedAt ? 'Czeka na uzupełnienie' : 'Brakuje danych'}</span>}
                             {c.needsReview && <span className="badge">Do sprawdzenia</span>}
                             {c.duplicateOf && <span className="badge">Możliwy duplikat</span>}
                             {c.applicationCount > 1 && <span className="badge info">{c.applicationCount} zgłoszenia</span>}
                             {c.retentionDue && <span className="badge">Minął okres przechowywania</span>}
-                            {c.status === 'interview' && c.interviewAt && (
+                            {statusKind(c.status) === 'interview' && c.interviewAt && (
                               <span className="badge info">Rozmowa: {fmtInterview(c.interviewAt)}</span>
                             )}
                           </span>
@@ -1058,6 +1062,9 @@ export default function App() {
             <Admin
               onSaved={say}
               onRetentionChanged={() => {
+                void reloadAll();
+              }}
+              onStatusesChanged={() => {
                 void reloadAll();
               }}
             />

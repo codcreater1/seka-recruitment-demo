@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { STATUSES, type CandidateListItem, type StatusId } from '@/lib/domain';
+import { statusKind, statusList, type CandidateListItem, type StatusId } from '@/lib/domain';
 import { STATUS_VAR } from './Chip';
 import { displayName, fmtInterview, rel } from './ui';
 
@@ -18,7 +18,7 @@ export default function Board({ items, canEdit, anon, onOpen, onMove }: Props) {
 
   return (
     <div className="board" role="region" aria-label="Tablica statusów" tabIndex={0}>
-      {STATUSES.map((s) => {
+      {statusList().map((s) => {
         const cards = items.filter((c) => c.status === s.id);
         return (
           <section
@@ -65,7 +65,7 @@ export default function Board({ items, canEdit, anon, onOpen, onMove }: Props) {
                         {'★'.repeat(c.rating)}
                       </span>
                     )}
-                    {c.status === 'interview' && c.interviewAt && <span>Rozmowa: {fmtInterview(c.interviewAt)}</span>}
+                    {statusKind(c.status) === 'interview' && c.interviewAt && <span>Rozmowa: {fmtInterview(c.interviewAt)}</span>}
                     {c.needsReview && <span className="badge">Do sprawdzenia</span>}
                     {c.duplicateOf && <span className="badge">Duplikat?</span>}
                   </span>

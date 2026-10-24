@@ -1,8 +1,9 @@
 import { DEMO_ACCOUNTS, authMode, badRequest, json, requireAdmin } from '@/lib/auth';
 import { audit, POOL_RETENTION_MONTHS, RETENTION_MONTHS } from '@/lib/db';
-import { CITIES, DEFAULT_TEMPLATES, EMAIL_TEMPLATE_IDS, POSITIONS, ROLE_LABEL, STATUSES, type EmailTemplate } from '@/lib/domain';
+import { CITIES, DEFAULT_TEMPLATES, EMAIL_TEMPLATE_IDS, POSITIONS, ROLE_LABEL, statusList, type EmailTemplate } from '@/lib/domain';
 import { smtpConfigured } from '@/lib/mailer';
 import { isEmail, isTeamsWebhook } from '@/lib/notify';
+import { saveStatuses, statusUsage } from '@/lib/statuses';
 import { getSettings, updateSettings, type SettingsPatch } from '@/lib/settings';
 import { APP_TIMEZONE } from '@/lib/time';
 
@@ -38,6 +39,7 @@ export async function GET() {
       poolRetentionMonths: settings.poolRetentionMonths,
       notify: settings.notify,
     },
+    statuses: statusList().map((s) => ({ ...s, used: statusUsage()[s.id] ?? 0 })),
     templates: EMAIL_TEMPLATE_IDS.map((id) => {
       const base = DEFAULT_TEMPLATES[id];
       const own = settings.templates[id];
@@ -68,7 +70,7 @@ export async function GET() {
       timezone: APP_TIMEZONE,
       retentionDefaults: { months: RETENTION_MONTHS, poolMonths: POOL_RETENTION_MONTHS },
     },
-    dictionaries: { cities: [...CITIES], positions: [...POSITIONS], statuses: STATUSES.map((s) => s.label) },
+    dictionaries: { cities: [...CITIES], positions: [...POSITIONS], statuses: statusList().map((s) => s.label) },
   });
 }
 
@@ -139,6 +141,10 @@ export async function PUT(req: Request) {
       if (need && !text.includes(need)) return badRequest(`Treść tej wiadomości musi zawierać znacznik ${need}.`);
       patch.templates[id as EmailTemplate] = { subject, body: text };
     }
+  }
+  if ('statuses' in body) {
+    const saved = saveStatuses(body.statuses as { id?: string; label: string; kind: string }[], session.name);
+    if ('error' in saved) return badRequest(saved.error);
   }
   const changed = updateSettings(patch, session.name);
   if (changed.length) audit(session.name, 'settings-update', changed.join('; '));

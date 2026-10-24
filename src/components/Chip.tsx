@@ -1,13 +1,21 @@
-import { statusLabel } from '@/lib/domain';
+import { statusLabel, statusList } from '@/lib/domain';
 
-export const STATUS_VAR: Record<string, string> = {
+const KIND_VAR: Record<string, string> = {
   new: '--s-new',
-  screening: '--s-screening',
+  active: '--s-screening',
   interview: '--s-interview',
   offer: '--s-offer',
   hired: '--s-hired',
   rejected: '--s-rejected',
 };
+/** Colour variable of a status: built-in ones keep their own, added ones take the colour of their kind. */
+export const STATUS_VAR: Record<string, string> = new Proxy({} as Record<string, string>, {
+  get: (_t, id: string) => {
+    const s = statusList().find((x) => x.id === id);
+    if (!s) return '--muted';
+    return s.builtin ? `--s-${id}` : KIND_VAR[s.kind];
+  },
+});
 
 export function Chip({ status }: { status: string }) {
   return (

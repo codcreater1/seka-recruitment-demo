@@ -7,7 +7,9 @@ import {
   EMAIL_TEMPLATE_LABEL,
   FEEDBACK_CRITERIA,
   MISSING_SHORT,
-  PIPELINE,
+  firstOfKind,
+  pipelineIds,
+  statusKind,
   POSITIONS,
   RECOMMENDATIONS,
   UNASSIGNED_CITY,
@@ -69,7 +71,8 @@ export default function Detail({
   const [confirmMerge, setConfirmMerge] = useState(false);
   const [attKind, setAttKind] = useState<AttachmentKind>('cover');
   const [fb, setFb] = useState<FeedbackInput>({ communication: 3, knowledge: 3, fit: 3, recommendation: 'warunkowo', comment: '' });
-  const idx = PIPELINE.indexOf(c.status);
+  const pipeline = pipelineIds();
+  const idx = pipeline.indexOf(c.status);
   const cityOptions = [UNASSIGNED_CITY, ...CITIES];
   const positionOptions = [UNKNOWN_POSITION, ...POSITIONS];
   const p = c.profile;
@@ -209,7 +212,7 @@ export default function Detail({
             <section className="sec">
               <h3>Status zgłoszenia</h3>
               <ol className="steps">
-                {PIPELINE.map((id, i) => {
+                {pipeline.map((id, i) => {
                   const cls = c.status === id ? 'current' : idx > -1 && i < idx ? 'done' : '';
                   return (
                     <li key={id}>
@@ -228,12 +231,12 @@ export default function Detail({
               </ol>
               <div className="status-actions">
                 {edit ? (
-                  c.status === 'rejected' ? (
-                    <button className="btn small" type="button" onClick={() => onPatch({ status: 'screening' as StatusId }, 'Przywrócono do weryfikacji')}>
+                  statusKind(c.status) === 'rejected' ? (
+                    <button className="btn small" type="button" onClick={() => onPatch({ status: firstOfKind('active') as StatusId }, `Przywrócono do statusu „${statusLabel(firstOfKind('active'))}”`)}>
                       Przywróć do weryfikacji
                     </button>
                   ) : (
-                    <button className="btn small danger" type="button" onClick={() => onPatch({ status: 'rejected' }, 'Zgłoszenie odrzucone')}>
+                    <button className="btn small danger" type="button" onClick={() => onPatch({ status: firstOfKind('rejected') }, 'Zgłoszenie odrzucone')}>
                       Odrzuć zgłoszenie
                     </button>
                   )
@@ -241,7 +244,7 @@ export default function Detail({
                   <span className="hint">Zmiana statusu jest dostępna tylko dla HR (zakres uprawnień do ustalenia).</span>
                 )}
               </div>
-              {c.status === 'rejected' && (
+              {statusKind(c.status) === 'rejected' && (
                 <div className="reply">
                   <p className="hint">Szablon odpowiedzi do kandydata</p>
                   <pre>{c.rejectionPreview}</pre>

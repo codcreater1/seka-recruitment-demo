@@ -17,19 +17,48 @@ export const POSITIONS = [
   'Praktykant',
 ] as const;
 
-export const STATUSES = [
-  { id: 'new', label: 'Nowa' },
-  { id: 'screening', label: 'W weryfikacji' },
-  { id: 'interview', label: 'Rozmowa' },
-  { id: 'offer', label: 'Oferta' },
-  { id: 'hired', label: 'Zatrudniony/a' },
-  { id: 'rejected', label: 'Odrzucona' },
-] as const;
-export type StatusId = (typeof STATUSES)[number]['id'];
-export const PIPELINE: StatusId[] = ['new', 'screening', 'interview', 'offer', 'hired'];
+/**
+ * What a status means to the application. The administrator may add statuses and name them freely; the kind tells the
+ * calendar, the rejection e-mail, the retention rule and the reports how to treat it.
+ */
+export type StatusKind = 'new' | 'active' | 'interview' | 'offer' | 'hired' | 'rejected';
+export const STATUS_KINDS: { id: StatusKind; label: string; hint: string }[] = [
+  { id: 'active', label: 'W toku', hint: 'zgłoszenie jest rozpatrywane' },
+  { id: 'interview', label: 'Rozmowa', hint: 'pojawia się w kalendarzu rozmów' },
+  { id: 'offer', label: 'Oferta', hint: 'oferta złożona, kandydat jeszcze nie odpowiedział' },
+  { id: 'hired', label: 'Zatrudnienie', hint: 'koniec rekrutacji z zatrudnieniem; dane nie wygasają' },
+  { id: 'rejected', label: 'Odrzucenie', hint: 'można wysłać podziękowanie; znika z kalendarza' },
+];
+export const isStatusKind = (v: unknown): v is StatusKind => v === 'new' || STATUS_KINDS.some((k) => k.id === v);
 
-export const statusLabel = (id: string) => STATUSES.find((s) => s.id === id)?.label ?? id;
-export const isStatus = (v: unknown): v is StatusId => STATUSES.some((s) => s.id === v);
+export type StatusDef = { id: string; label: string; kind: StatusKind; builtin: boolean };
+export const DEFAULT_STATUSES: StatusDef[] = [
+  { id: 'new', label: 'Nowa', kind: 'new', builtin: true },
+  { id: 'screening', label: 'W weryfikacji', kind: 'active', builtin: true },
+  { id: 'interview', label: 'Rozmowa', kind: 'interview', builtin: true },
+  { id: 'offer', label: 'Oferta', kind: 'offer', builtin: true },
+  { id: 'hired', label: 'Zatrudniony/a', kind: 'hired', builtin: true },
+  { id: 'rejected', label: 'Odrzucona', kind: 'rejected', builtin: true },
+];
+export type StatusId = string;
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __sekaStatuses: StatusDef[] | undefined;
+}
+/** The current list: loaded from the database on the server, from /api/session in the browser. Kept on globalThis so every bundle sees it. */
+export const statusList = (): StatusDef[] => globalThis.__sekaStatuses ?? DEFAULT_STATUSES;
+export const setStatusList = (list: StatusDef[]) => {
+  globalThis.__sekaStatuses = list;
+};
+export const statusKind = (id: string): StatusKind => statusList().find((s) => s.id === id)?.kind ?? 'active';
+export const idsOfKind = (kind: StatusKind): string[] => statusList().filter((s) => s.kind === kind).map((s) => s.id);
+export const firstOfKind = (kind: StatusKind): string => idsOfKind(kind)[0] ?? DEFAULT_STATUSES.find((s) => s.kind === kind)?.id ?? 'new';
+/** The statuses a candidate moves through, in order (everything except rejection). */
+export const pipelineIds = (): string[] => statusList().filter((s) => s.kind !== 'rejected').map((s) => s.id);
+
+export const statusLabel = (id: string) => statusList().find((s) => s.id === id)?.label ?? id;
+export const isStatus = (v: unknown): v is StatusId => typeof v === 'string' && statusList().some((s) => s.id === v);
 export const isCity = (v: unknown): v is string =>
   typeof v === 'string' && (v === UNASSIGNED_CITY || (CITIES as readonly string[]).includes(v));
 export const isPosition = (v: unknown): v is string =>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CITIES, POSITIONS, STATUSES, type VacancyDto } from '@/lib/domain';
+import { CITIES, POSITIONS, statusList, type VacancyDto } from '@/lib/domain';
 import { STATUS_VAR } from './Chip';
 import { fmtDay } from './ui';
 
@@ -36,7 +36,7 @@ export default function Vacancies({ vacancies, canEdit, onCreate, onToggle, onSh
         <span className="hint"> · {v.status === 'open' ? `otwarte od ${fmtDay(v.openedAt)} (${v.daysOpen} dni)` : `zamknięte ${fmtDay(v.closedAt as string)}`}</span>
       </div>
       <div className="v-counts">
-        {STATUSES.filter((s) => v.counts[s.id]).map((s) => (
+        {statusList().filter((s) => v.counts[s.id]).map((s) => (
           <span key={s.id} className="chip" style={{ ['--dot' as string]: `var(${STATUS_VAR[s.id]})` }}>
             <i />{s.label} {v.counts[s.id]}
           </span>

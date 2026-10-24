@@ -6,6 +6,9 @@ import {
   MISSING_SHORT,
   UNASSIGNED_CITY,
   UNKNOWN_POSITION,
+  firstOfKind,
+  idsOfKind,
+  statusKind,
   statusLabel,
   ATTACHMENT_KINDS,
   type AttachmentDto,
@@ -48,7 +51,7 @@ function retention(r: Pick<Row, 'received_at' | 'status' | 'rodo'>) {
   const { retentionMonths, poolRetentionMonths } = getSettings();
   const due = new Date(r.received_at);
   due.setMonth(due.getMonth() + (r.rodo === 2 ? poolRetentionMonths : retentionMonths));
-  return { retentionDate: due.toISOString(), retentionDue: r.status !== 'hired' && due.getTime() < Date.now() };
+  return { retentionDate: due.toISOString(), retentionDue: statusKind(r.status) !== 'hired' && due.getTime() < Date.now() };
 }
 
 /** What an application lacks. The candidate is asked for these items. */
@@ -543,15 +546,17 @@ export async function bulkAction(s: Session, action: 'reject-and-thank' | 'thank
   if (action === 'reject-and-thank') {
     for (const id of ids.slice(0, 200)) {
       const row = getRow(s, id);
-      if (!row || row.status === 'rejected') continue;
-      db.prepare("UPDATE candidates SET status = 'rejected' WHERE id = ?").run(id);
-      addEvent(id, s.name, `Zmiana statusu: ${statusLabel(row.status)} → ${statusLabel('rejected')} (operacja zbiorcza)`);
-      await sendTemplateEmail({ ...row, status: 'rejected' }, 'rejection', s.name);
+      if (!row || statusKind(row.status) === 'rejected') continue;
+      const rejected = firstOfKind('rejected');
+      db.prepare('UPDATE candidates SET status = ? WHERE id = ?').run(rejected, id);
+      addEvent(id, s.name, `Zmiana statusu: ${statusLabel(row.status)} → ${statusLabel(rejected)} (operacja zbiorcza)`);
+      await sendTemplateEmail({ ...row, status: rejected }, 'rejection', s.name);
       done++;
     }
     audit(s.name, 'bulk-reject', `Odrzucono i wysłano podziękowanie: ${done} zgłoszeń`);
   } else if (action === 'thank-rejected') {
-    const pending = db.prepare("SELECT * FROM candidates WHERE status = 'rejected' AND rejection_sent = 0").all() as Row[];
+    const rejectedIds = idsOfKind('rejected');
+    const pending = db.prepare(`SELECT * FROM candidates WHERE status IN (${rejectedIds.map(() => '?').join(',')}) AND rejection_sent = 0`).all(...rejectedIds) as Row[];
     for (const row of pending) {
       if (s.city && row.city !== s.city) continue;
       const res = await sendTemplateEmail(row, 'rejection', s.name);
@@ -614,7 +619,7 @@ export function getStats(s: Session): StatsDto {
   // interview times are local wall-clock strings, so compare them with the local "now", not with UTC
   const nowLocal = localNow();
   const upcomingInterviews = rows
-    .filter((r) => r.interview_at && r.interview_at >= nowLocal && r.status !== 'rejected' && r.status !== 'hired')
+    .filter((r) => r.interview_at && r.interview_at >= nowLocal && statusKind(r.status) !== 'rejected' && statusKind(r.status) !== 'hired')
     .sort((a, b) => (a.interview_at as string).localeCompare(b.interview_at as string))
     .slice(0, 8)
     .map((r) => ({ id: r.id, name: r.name, position: r.position, city: r.city, interviewAt: r.interview_at as string }));
@@ -644,7 +649,7 @@ export function getStats(s: Session): StatsDto {
       needsReview: rows.filter((r) => r.needs_review).length,
       duplicates: rows.filter((r) => r.duplicate_of).length,
       stale: rows.filter((r) => r.status === 'new' && now - Date.parse(r.received_at) > weekMs).length,
-      unsentRejections: rows.filter((r) => r.status === 'rejected' && !r.rejection_sent).length,
+      unsentRejections: rows.filter((r) => statusKind(r.status) === 'rejected' && !r.rejection_sent).length,
       retentionDue: rows.filter((r) => retention(r).retentionDue).length,
       emptyVacancies: emptyVacancies,
       missingInfo: rows.filter((r) => computeMissing(r).length > 0).length,

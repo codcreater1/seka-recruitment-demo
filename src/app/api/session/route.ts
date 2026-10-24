@@ -1,4 +1,6 @@
 import { ROLE_OPTIONS, authMode, json, requireSession } from '@/lib/auth';
+import { getDb } from '@/lib/db';
+import { statusList } from '@/lib/domain';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,5 +10,6 @@ export async function GET() {
   const session = await requireSession();
   if (session instanceof Response) return session;
   const mode = authMode();
-  return json({ session, authMode: mode, accounts: mode === 'demo' ? ROLE_OPTIONS : [] });
+  getDb(); // makes sure the status list is loaded
+  return json({ session, authMode: mode, accounts: mode === 'demo' ? ROLE_OPTIONS : [], statuses: statusList() });
 }

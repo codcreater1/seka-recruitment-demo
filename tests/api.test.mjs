@@ -407,6 +407,45 @@ test('attachments: upload, type check, download, permissions, ingest extras, del
   assert.equal((await call(`/api/candidates/${res.body.id}`, { method: 'DELETE' })).status, 200);
 });
 
+
+test('configurable statuses: admin only, kinds drive behaviour, used or built-in ones stay', async () => {
+  const put = send('PUT');
+  const list = async () => (await call('/api/admin/settings', {}, ADMIN)).body.statuses;
+  const base = (await list()).map((s) => ({ id: s.id, label: s.label, kind: s.kind }));
+  assert.equal(base.length, 6);
+  assert.equal((await put('/api/admin/settings', { statuses: base }, HR)).status, 403);
+  // validation
+  assert.equal((await put('/api/admin/settings', { statuses: base.slice(1) }, ADMIN)).status, 400, 'built-in cannot be removed');
+  assert.equal((await put('/api/admin/settings', { statuses: [base[1], base[0], ...base.slice(2)] }, ADMIN)).status, 400, '"Nowa" stays first');
+  assert.equal((await put('/api/admin/settings', { statuses: [...base, { label: 'Nowa', kind: 'active' }] }, ADMIN)).status, 400, 'names are unique');
+  assert.equal((await put('/api/admin/settings', { statuses: [...base, { label: 'X', kind: 'wymyslony' }] }, ADMIN)).status, 400);
+  assert.equal((await put('/api/admin/settings', { statuses: base.map((s) => (s.id === 'hired' ? { ...s, kind: 'active' } : s)) }, ADMIN)).status, 400, 'built-in kind is fixed');
+
+  // add a status that behaves like a rejection and one in between
+  const next = [...base.slice(0, 3), { label: 'Test techniczny', kind: 'active' }, ...base.slice(3), { label: 'Wycofał się', kind: 'rejected' }];
+  assert.equal((await put('/api/admin/settings', { statuses: next }, ADMIN)).status, 200);
+  const now = await list();
+  assert.deepEqual(now.map((s) => s.label), ['Nowa', 'W weryfikacji', 'Rozmowa', 'Test techniczny', 'Oferta', 'Zatrudniony/a', 'Odrzucona', 'Wycofał się']);
+  const custom = now.find((s) => s.label === 'Test techniczny');
+  const withdrew = now.find((s) => s.label === 'Wycofał się');
+  assert.equal((await call('/api/session')).body.statuses.length, 8, 'everyone gets the list');
+
+  const cand = (await candidates()).find((c) => c.status === 'new' && c.email && c.city !== 'Do przypisania');
+  assert.equal((await patch(`/api/candidates/${cand.id}`, { status: custom.id })).status, 200);
+  assert.equal((await detail(cand.id)).status, custom.id);
+  // a custom status of kind "rejected" allows the thank-you message, an "active" one does not
+  assert.equal((await post(`/api/candidates/${cand.id}/emails`, { template: 'rejection' })).status, 400);
+  assert.equal((await patch(`/api/candidates/${cand.id}`, { status: withdrew.id })).status, 200);
+  assert.equal((await post(`/api/candidates/${cand.id}/emails`, { template: 'rejection' })).status, 201);
+  // in use: cannot be removed; unknown ids are refused
+  assert.equal((await patch(`/api/candidates/${cand.id}`, { status: 'wymyslony' })).status, 400);
+  assert.equal((await put('/api/admin/settings', { statuses: next.filter((s) => s.label !== 'Wycofał się').map((s, i) => (s.label === 'Test techniczny' ? { ...s, id: custom.id } : s)) }, ADMIN)).status, 400);
+  // put everything back
+  assert.equal((await patch(`/api/candidates/${cand.id}`, { status: 'new' })).status, 200);
+  assert.equal((await put('/api/admin/settings', { statuses: base }, ADMIN)).status, 200);
+  assert.equal((await list()).length, 6);
+});
+
 test('every seeded CV is read back correctly', async () => {
   const seed = JSON.parse(fs.readFileSync(path.join(root, 'seed', 'seed.json'), 'utf8'));
   const failures = [];

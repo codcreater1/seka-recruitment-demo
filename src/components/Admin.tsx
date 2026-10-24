@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { EMAIL_TEMPLATE_IDS, renderTemplate, type EmailTemplate, type Role } from '@/lib/domain';
+import { EMAIL_TEMPLATE_IDS, STATUS_KINDS, renderTemplate, setStatusList, type EmailTemplate, type Role, type StatusDef, type StatusKind } from '@/lib/domain';
 import { api } from './ui';
 
 type TemplateInfo = {
@@ -22,7 +22,9 @@ type NotifyForm = {
   managerEmails: Record<string, string>;
   teamsWebhook: string;
 };
+type StatusRow = { id?: string; label: string; kind: StatusKind; builtin: boolean; used: number };
 type AdminData = {
+  statuses: (StatusDef & { used: number })[];
   settings: { autoAck: boolean; autoMissing: boolean; retentionMonths: number; poolRetentionMonths: number; notify: NotifyForm };
   templates: TemplateInfo[];
   directory: { id: string; name: string; email: string; role: Role; roleLabel: string; city: string | null; entraRole: string }[];
@@ -40,7 +42,7 @@ type AdminData = {
 
 const SAMPLE = { position: 'Technik laboratoryjny', interviewAt: '2026-10-21T09:00', missing: ['cv', 'city'] as ('cv' | 'city')[] };
 
-export default function Admin({ onSaved, onRetentionChanged }: { onSaved: (msg: string) => void; onRetentionChanged: () => void }) {
+export default function Admin({ onSaved, onRetentionChanged, onStatusesChanged }: { onSaved: (msg: string) => void; onRetentionChanged: () => void; onStatusesChanged: () => void }) {
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState('');
   const [tpl, setTpl] = useState<EmailTemplate>('missing');
@@ -50,11 +52,13 @@ export default function Admin({ onSaved, onRetentionChanged }: { onSaved: (msg: 
   const [busy, setBusy] = useState(false);
   const [nf, setNf] = useState<NotifyForm>({ enabled: false, onNew: true, onInterview: true, hrEmails: [], managerEmails: {}, teamsWebhook: '' });
   const [hrText, setHrText] = useState('');
+  const [rows, setRows] = useState<StatusRow[]>([]);
 
   const load = useCallback(async () => {
     const d = await api<AdminData>('/api/admin/settings');
     setData(d);
     setMonths({ retention: d.settings.retentionMonths, pool: d.settings.poolRetentionMonths });
+    setRows(d.statuses.map((s) => ({ id: s.id, label: s.label, kind: s.kind, builtin: s.builtin, used: s.used })));
     setNf(d.settings.notify);
     setHrText(d.settings.notify.hrEmails.join('\n'));
     return d;
@@ -164,6 +168,87 @@ export default function Admin({ onSaved, onRetentionChanged }: { onSaved: (msg: 
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Statusy zgłoszeń</h2>
+        <p className="hint">
+          Statusy podstawowe można przemianować i przesunąć. Dodane statusy mają rodzaj, który mówi systemowi, jak je traktować (kalendarz rozmów, podziękowanie po odrzuceniu, okres przechowywania).
+          Status używany przez zgłoszenia nie może zostać usunięty.
+        </p>
+        <ol className="status-edit">
+          {rows.map((r, i) => (
+            <li key={r.id ?? `new-${i}`} className="inline-row">
+              <input
+                aria-label={`Nazwa statusu ${i + 1}`}
+                value={r.label}
+                maxLength={40}
+                onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+              />
+              {r.builtin ? (
+                <span className="hint">{STATUS_KINDS.find((k) => k.id === r.kind)?.label ?? 'Początkowy'}</span>
+              ) : (
+                <select
+                  aria-label={`Rodzaj statusu ${i + 1}`}
+                  value={r.kind}
+                  onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, kind: e.target.value as StatusKind } : x)))}
+                >
+                  {STATUS_KINDS.map((k) => (
+                    <option key={k.id} value={k.id}>{k.label}</option>
+                  ))}
+                </select>
+              )}
+              <span className="hint">{r.used ? `${r.used} zgłoszeń` : ''}</span>
+              <button
+                className="btn small"
+                type="button"
+                aria-label="Przesuń w górę"
+                disabled={i <= 1}
+                onClick={() => setRows(rows.map((x, j) => (j === i - 1 ? rows[i] : j === i ? rows[i - 1] : x)))}
+              >
+                ↑
+              </button>
+              <button
+                className="btn small"
+                type="button"
+                aria-label="Przesuń w dół"
+                disabled={i === 0 || i === rows.length - 1}
+                onClick={() => setRows(rows.map((x, j) => (j === i + 1 ? rows[i] : j === i ? rows[i + 1] : x)))}
+              >
+                ↓
+              </button>
+              {!r.builtin && (
+                <button
+                  className="btn small danger"
+                  type="button"
+                  disabled={r.used > 0}
+                  title={r.used > 0 ? 'Status jest używany' : undefined}
+                  onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                >
+                  Usuń
+                </button>
+              )}
+            </li>
+          ))}
+        </ol>
+        <div className="inline-row">
+          <button className="btn small" type="button" onClick={() => setRows([...rows, { label: '', kind: 'active', builtin: false, used: 0 }])}>
+            Dodaj status
+          </button>
+          <button
+            className="btn small primary"
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              if (await save({ statuses: rows.map((r) => ({ id: r.id, label: r.label, kind: r.kind })) }, 'Statusy zapisane')) {
+                setStatusList(rows.length ? (await api<AdminData>('/api/admin/settings')).statuses : []);
+                onStatusesChanged();
+              }
+            }}
+          >
+            Zapisz statusy
+          </button>
         </div>
       </section>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { STATUSES, type StatsDto } from '@/lib/domain';
+import { statusList, type StatsDto } from '@/lib/domain';
 import { STATUS_VAR } from './Chip';
 import { displayName, fmtInterview } from './ui';
 
@@ -56,7 +56,7 @@ export default function Summary({ stats, canEdit, anon, onVacancies, onOpenCandi
             <button key={c.city} type="button" className="cityrow" onClick={() => onCity(c.city)} title="Pokaż zgłoszenia z tego miasta">
               <span className="nm">{c.city}</span>
               <span className="stack" aria-label={`${c.city}: ${c.total}`}>
-                {STATUSES.map((s) => {
+                {statusList().map((s) => {
                   const n = c.byStatus[s.id] || 0;
                   return n ? (
                     <span key={s.id} title={`${s.label}: ${n}`} style={{ width: `${(n / c.total) * 100}%`, ['--dot' as string]: `var(${STATUS_VAR[s.id]})` }} />
@@ -67,7 +67,7 @@ export default function Summary({ stats, canEdit, anon, onVacancies, onOpenCandi
             </button>
           ))}
           <div className="legend">
-            {STATUSES.map((s) => (
+            {statusList().map((s) => (
               <span key={s.id}><i style={{ ['--dot' as string]: `var(${STATUS_VAR[s.id]})` }} />{s.label} ({stats.byStatus[s.id] || 0})</span>
             ))}
           </div>

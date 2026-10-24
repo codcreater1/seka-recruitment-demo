@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { type CandidateListItem } from '@/lib/domain';
+import { statusKind, type CandidateListItem } from '@/lib/domain';
 import { Chip } from './Chip';
 import { dayKey, displayName, weekStart } from './ui';
 
@@ -20,7 +20,7 @@ export default function Calendar({ items, anon, onOpen }: Props) {
   const auto = useMemo(() => {
     const today = dayKey(new Date());
     const next = items
-      .filter((c) => c.interviewAt && c.status !== 'rejected' && (c.interviewAt as string).slice(0, 10) >= today)
+      .filter((c) => c.interviewAt && statusKind(c.status) !== 'rejected' && (c.interviewAt as string).slice(0, 10) >= today)
       .map((c) => c.interviewAt as string)
       .sort()[0];
     if (!next) return 0;
@@ -45,8 +45,8 @@ export default function Calendar({ items, anon, onOpen }: Props) {
       }),
     [start],
   );
-  const planned = items.filter((c) => c.interviewAt && c.status !== 'rejected');
-  const unscheduled = items.filter((c) => c.status === 'interview' && !c.interviewAt);
+  const planned = items.filter((c) => c.interviewAt && statusKind(c.status) !== 'rejected');
+  const unscheduled = items.filter((c) => statusKind(c.status) === 'interview' && !c.interviewAt);
   const todayKey = dayKey(new Date());
   const last = days[6];
   const inWeek = planned.filter((c) => {

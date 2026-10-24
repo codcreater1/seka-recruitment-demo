@@ -1,7 +1,7 @@
 import { addEvent, audit, getDb } from '@/lib/db';
 import { badRequest, json, notFound, requireEditor, requireSession } from '@/lib/auth';
 import { deleteCandidate, getCandidate, getRow, listVacancies, vacancyExists } from '@/lib/candidates';
-import { isCity, isPosition, isStatus, statusLabel } from '@/lib/domain';
+import { isCity, isPosition, isStatus, statusKind, statusLabel } from '@/lib/domain';
 import { notifyEvent } from '@/lib/notify';
 import { indexCandidate } from '@/lib/search';
 import { isLocalDateTime } from '@/lib/time';
@@ -38,7 +38,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       set.push('status = ?');
       args.push(body.status);
       events.push(`Zmiana statusu: ${statusLabel(row.status)} → ${statusLabel(body.status)}`);
-      if (body.status !== 'rejected') set.push('rejection_sent = 0');
+      if (statusKind(body.status) !== 'rejected') set.push('rejection_sent = 0');
     }
   }
   if ('city' in body) {

@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { MISSING_SHORT, UNASSIGNED_CITY, UNKNOWN_POSITION, renderTemplate, statusLabel, type EmailTemplate, type MissingItem, type StatusId } from './domain';
+import { DEFAULT_STATUSES, setStatusList, type StatusDef, MISSING_SHORT, UNASSIGNED_CITY, UNKNOWN_POSITION, renderTemplate, statusLabel, type EmailTemplate, type MissingItem, type StatusId } from './domain';
 import { localDate } from './time';
 
 /** A positive whole number from the environment; a typo in a setting must not break the app. */
@@ -107,6 +107,13 @@ CREATE TABLE IF NOT EXISTS attachments (
   added_by TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_candidate ON attachments(candidate_id);
+CREATE TABLE IF NOT EXISTS statuses (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  builtin INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -123,7 +130,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 `;
 
+/** Reads the status list from the database into the shared list the whole application uses. */
+export function refreshStatuses(db: Database.Database = getDb()): StatusDef[] {
+  const rows = db.prepare('SELECT id, label, kind, builtin FROM statuses ORDER BY position, rowid').all() as { id: string; label: string; kind: StatusDef['kind']; builtin: number }[];
+  const list = rows.map((r) => ({ id: r.id, label: r.label, kind: r.kind, builtin: !!r.builtin }));
+  setStatusList(list.length ? list : DEFAULT_STATUSES);
+  return list;
+}
+
 function migrate(db: Database.Database) {
+  if ((db.prepare('SELECT COUNT(*) AS n FROM statuses').get() as { n: number }).n === 0) {
+    const ins = db.prepare('INSERT INTO statuses (id, label, kind, position, builtin) VALUES (?, ?, ?, ?, 1)');
+    DEFAULT_STATUSES.forEach((s, i) => ins.run(s.id, s.label, s.kind, i));
+  }
   const has = (table: string, column: string) =>
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
   if (!has('candidates', 'vacancy_id')) db.exec('ALTER TABLE candidates ADD COLUMN vacancy_id TEXT');
@@ -292,6 +311,7 @@ export function getDb(): Database.Database {
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
   migrate(db);
+  refreshStatuses(db);
   const count = (db.prepare('SELECT COUNT(*) AS n FROM candidates').get() as { n: number }).n;
   if (count === 0 && process.env.SEED_DEMO_DATA !== 'false') seedDemo(db);
   globalThis.__sekaDb = db;
