@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_ROLES, DEFAULT_STATUSES, setStatusList, type StatusDef, MISSING_SHORT, UNASSIGNED_CITY, UNKNOWN_POSITION, renderTemplate, statusLabel, type EmailTemplate, type MissingItem, type StatusId } from './domain';
+import { type EventKind, DEFAULT_ROLES, DEFAULT_STATUSES, setStatusList, type StatusDef, MISSING_SHORT, UNASSIGNED_CITY, UNKNOWN_POSITION, renderTemplate, statusLabel, type EmailTemplate, type MissingItem, type StatusId } from './domain';
 import { localDate } from './time';
 
 /** A positive whole number from the environment; a typo in a setting must not break the app. */
@@ -157,6 +157,17 @@ function migrate(db: Database.Database) {
   }
   const has = (table: string, column: string) =>
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
+  if (!has('events', 'kind')) {
+    db.exec("ALTER TABLE events ADD COLUMN kind TEXT NOT NULL DEFAULT 'system'");
+    // events written before kinds existed: sorted by their wording
+    db.exec(`UPDATE events SET kind = 'status' WHERE text LIKE 'Zmiana statusu%' OR text LIKE 'Przywrócono%';
+      UPDATE events SET kind = 'note' WHERE text LIKE 'Dodano notatkę%' OR text LIKE 'Dodano komentarz%';
+      UPDATE events SET kind = 'opinion' WHERE text LIKE 'Dodano opinię%';
+      UPDATE events SET kind = 'mail' WHERE text LIKE '%(wysłano)%' OR text LIKE '%(symulacja)%' OR text LIKE '%(błąd wysyłki%';
+      UPDATE events SET kind = 'data' WHERE text LIKE 'Zmieniono miasto%' OR text LIKE 'Zmieniono stanowisko%' OR text LIKE 'Ustawiono ocenę%' OR text LIKE 'Ustalono termin%' OR text LIKE 'Przypisano do ogłoszenia%';
+      UPDATE events SET kind = 'file' WHERE text LIKE '%załącznik%' OR text LIKE 'Uzupełnienie zgłoszenia%';`);
+  }
+  if (!has('emails', 'direction')) db.exec("ALTER TABLE emails ADD COLUMN direction TEXT NOT NULL DEFAULT 'out'");
   if (!has('candidates', 'vacancy_id')) db.exec('ALTER TABLE candidates ADD COLUMN vacancy_id TEXT');
   if (!has('emails', 'attachment')) db.exec("ALTER TABLE emails ADD COLUMN attachment TEXT NOT NULL DEFAULT ''");
   if (!has('candidates', 'cv_state')) {
@@ -197,7 +208,7 @@ function seedDemo(db: Database.Database) {
     VALUES (@id, @name, @email, @phone, @city, @position, @status, @received_at, 'E-mail', @email, @subject, @city_basis,
      @rodo, @file_id, @file_name, @file_size, @rating, @interview_at, @rejection_sent, @needs_review, @duplicate_of, @vacancy_id,
      @info_requested_at, @info_requested_items)`);
-  const insE = db.prepare('INSERT INTO events (candidate_id, at, actor, text) VALUES (?, ?, ?, ?)');
+  const insE = db.prepare('INSERT INTO events (candidate_id, at, actor, text, kind) VALUES (?, ?, ?, ?, ?)');
   const insN = db.prepare('INSERT INTO notes (candidate_id, author, text, created_at) VALUES (?, ?, ?, ?)');
   const insM = db.prepare(
     "INSERT INTO emails (candidate_id, at, template, to_addr, subject, body, status, actor, attachment) VALUES (?, ?, ?, ?, ?, ?, 'simulated', ?, ?)",
@@ -265,26 +276,27 @@ function seedDemo(db: Database.Database) {
         info_requested_at: missingItems.length ? new Date(received + 2 * 6e4).toISOString() : null,
         info_requested_items: missingItems.join(','),
       });
-      insE.run(c.id, new Date(received).toISOString(), 'system', 'Otrzymano zgłoszenie e-mailem');
-      insE.run(c.id, new Date(received + 6e4).toISOString(), 'system', 'Utworzono profil kandydata (automatycznie z załącznika PDF)');
+      insE.run(c.id, new Date(received).toISOString(), 'system', 'Otrzymano zgłoszenie e-mailem', 'system');
+      insE.run(c.id, new Date(received + 6e4).toISOString(), 'system', 'Utworzono profil kandydata (automatycznie z załącznika PDF)', 'system');
       insE.run(
         c.id, new Date(received + 2 * 6e4).toISOString(), 'system',
         missingItems.length
           ? `Wysłano prośbę o uzupełnienie zgłoszenia: ${missingItems.map((m) => MISSING_SHORT[m]).join(', ')} (automatyczna odpowiedź, symulacja)`
           : 'Wysłano potwierdzenie przyjęcia zgłoszenia (automatyczna odpowiedź, symulacja)',
+        'mail',
       );
       if (c.duplicateOf) {
-        insE.run(c.id, new Date(received + 3 * 6e4).toISOString(), 'system', 'Wykryto możliwy duplikat: ta osoba złożyła już zgłoszenie na to samo stanowisko w tym mieście');
+        insE.run(c.id, new Date(received + 3 * 6e4).toISOString(), 'system', 'Wykryto możliwy duplikat: ta osoba złożyła już zgłoszenie na to samo stanowisko w tym mieście', 'system');
       } else if (seed.candidates.some((o, j) => j < i && o.email && o.email.toLowerCase() === c.email.toLowerCase())) {
-        insE.run(c.id, new Date(received + 3 * 6e4).toISOString(), 'system', 'Ta osoba ma już inne zgłoszenie w systemie (powiązane po adresie e-mail)');
+        insE.run(c.id, new Date(received + 3 * 6e4).toISOString(), 'system', 'Ta osoba ma już inne zgłoszenie w systemie (powiązane po adresie e-mail)', 'system');
       }
       let prev: StatusId = 'new';
       (PATHS[c.status] || []).forEach((st, k) => {
-        insE.run(c.id, at(20 + k * 30), 'Agnieszka (HR)', `Zmiana statusu: ${statusLabel(prev)} → ${statusLabel(st)}`);
+        insE.run(c.id, at(20 + k * 30), 'Agnieszka (HR)', `Zmiana statusu: ${statusLabel(prev)} → ${statusLabel(st)}`, 'status');
         prev = st;
       });
       if (c.status === 'rejected') {
-        insE.run(c.id, at(20 + (PATHS.rejected.length) * 30 + 1), 'Agnieszka (HR)', 'Wysłano podziękowanie za udział w rekrutacji (symulacja)');
+        insE.run(c.id, at(20 + (PATHS.rejected.length) * 30 + 1), 'Agnieszka (HR)', 'Wysłano podziękowanie za udział w rekrutacji (symulacja)', 'mail');
       }
       if (c.note) insN.run(c.id, 'Agnieszka (HR)', c.note, at(24));
       const mail = (template: EmailTemplate, when: string, actor: string) => {
@@ -379,7 +391,7 @@ export function audit(actor: string, action: string, detail = '') {
   getDb().prepare('INSERT INTO audit_log (at, actor, action, detail) VALUES (?, ?, ?, ?)').run(nowIso(), actor, action, detail);
 }
 
-export function addEvent(candidateId: string, actor: string, text: string) {
-  getDb().prepare('INSERT INTO events (candidate_id, at, actor, text) VALUES (?, ?, ?, ?)').run(candidateId, nowIso(), actor, text);
+export function addEvent(candidateId: string, actor: string, text: string, kind: EventKind = 'system') {
+  getDb().prepare('INSERT INTO events (candidate_id, at, actor, text, kind) VALUES (?, ?, ?, ?, ?)').run(candidateId, nowIso(), actor, text, kind);
 }
 

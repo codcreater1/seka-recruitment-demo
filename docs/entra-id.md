@@ -25,8 +25,10 @@ This is implemented and switched on with `AUTH_MODE=entra`. Without it the appli
 
    | Value | Meaning |
    |---|---|
-   | `SEKA.Admin` | administrator: everything and the settings |
+   | `SEKA.SystemAdmin` | system administrator: everything, including the technical settings (mail server, Azure / Entra ID, AI key) and the demo reset |
+   | `SEKA.Admin` | administrator: roles, statuses, permissions, message wording, retention, notifications |
    | `SEKA.HR` | HR manager: the whole company |
+   | *any role added in the application* | the name entered for it under Administracja → Role; a role limited to one branch gets the city appended, as below |
    | `SEKA.Branch.Warszawa`, `SEKA.Branch.Kraków`, `SEKA.Branch.Wrocław`, `SEKA.Branch.Gdańsk`, `SEKA.Branch.Poznań`, `SEKA.Branch.Katowice` | branch manager of that city |
 
 5. **Enterprise applications → SEKA Recruitment → Users and groups → Add user/group** and pick the role for each

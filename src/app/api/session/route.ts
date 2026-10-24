@@ -1,6 +1,7 @@
 import { authMode, roleOptions, json, requireSession } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { statusList } from '@/lib/domain';
+import { getSystemConfig } from '@/lib/system-config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,5 +12,5 @@ export async function GET() {
   if (session instanceof Response) return session;
   const mode = authMode();
   getDb(); // makes sure the status list is loaded
-  return json({ session, authMode: mode, accounts: mode === 'demo' ? roleOptions() : [], statuses: statusList() });
+  return json({ session, authMode: mode, accounts: mode === 'demo' ? roleOptions() : [], statuses: statusList(), mailbox: getSystemConfig().mailbox });
 }

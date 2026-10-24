@@ -34,11 +34,13 @@ Branch managers get access to the candidates of their own city only. Sign-in is 
 | Intake | `POST /api/ingest` (Power Automate), manual PDF or `.eml` upload, bundled sample CVs |
 | PDF reading | Server-side text extraction; name, e-mail, phone, city and position are detected; scans are flagged "Do sprawdzenia" |
 | City logic | From the e-mail subject, otherwise from the CV address; unknown goes to "Do przypisania" |
+| One mailbox | Every message to a candidate is sent from the company mailbox (`kariera@seka.pl` by default), whoever triggers it, and carries a short reference in its subject, so the answer lands on the same profile instead of becoming a new application. HR can also write free-text messages from the profile. The text of an incoming message is kept and read for the position and city |
+| History | Every event has a kind (status, data, correspondence, note, opinion, file, merge, system) and the history of an application can be filtered by it and is grouped by day |
 | Correspondence | Acknowledgement on intake, interview invitation, thank-you after rejection; logged on the profile; bulk "reject and thank" |
 | Incomplete applications | No CV, an unreadable CV, no city or no position: the candidate gets an e-mail asking for exactly that (switchable), the profile is marked "Czeka na uzupełnienie", and the answer (the same sender) completes the same profile. HR can ask again or attach the CV by hand. `/api/ingest` returns the list of gaps (`missing`) so Power Automate can send the mail itself instead |
 | Duplicates | Same e-mail address as an existing profile is flagged |
-| Roles | **Administrator**: everything, the settings, the demo reset. **HR manager**: all cities, all candidate operations. **Branch manager**: only the own city, can read, comment and add opinions. Enforced on the server for every request |
-| Administration | Administrator only: the permission matrix, the accounts with their Entra ID role names, which automatic messages are sent, the wording of every message (with a live preview), retention periods, integration status |
+| Roles | Four built-in roles, and the administrator can add more (for example an assistant limited to one branch). **System administrator**: everything, including the technical settings (company mailbox, mail server, Azure / Entra ID, AI key) and the demo reset. **Administrator**: roles, statuses, permissions, message wording, retention, notifications. **HR manager**: all cities, all candidate operations. **Branch manager**: only the own city, can read, comment and add opinions. A role has a scope (whole company or one branch) and permissions (comment, work with candidates, administration, system settings), enforced on the server for every request |
+| Administration | **Administrator**: the roles and their permissions, the statuses (rename, reorder, add; each has a kind that tells the calendar, the thank-you e-mail and the retention rule how to treat it), which automatic messages are sent, the wording of every message (with a live preview), retention periods, notifications. **System administrator**: the technical settings, with secrets stored encrypted and never sent back to the browser |
 | GDPR | Export a candidate as JSON, delete a profile with its file, retention warning and bulk clean-up, audit log |
 | Fairness | No automatic scoring or ranking of candidates; ratings are entered by a person |
 
@@ -164,7 +166,7 @@ Every page and API route needs a session (a signed cookie). Two ways to get one,
 - **Demo** (`AUTH_MODE=demo`, default): the sign-in page offers demo accounts for every role and branch. There are no passwords,
   so a public link needs `DEMO_PASSWORD` in front. The menu switches accounts without leaving the page.
 - **Microsoft Entra ID** (`AUTH_MODE=entra`): OpenID Connect code flow with PKCE and a verified ID token; roles from app roles
-  (`SEKA.Admin`, `SEKA.HR`, `SEKA.Branch.<city>`) or groups. Setup in [`docs/entra-id.md`](docs/entra-id.md). Tested against a
+  (`SEKA.SystemAdmin`, `SEKA.Admin`, `SEKA.HR`, `SEKA.Branch.<city>`, and the names of roles added in the application) or groups. Setup in [`docs/entra-id.md`](docs/entra-id.md). Tested against a
   local identity provider; to be tried with SEKA's tenant.
 
 The prototype is Next.js and SQLite; SEKA's production stack is Laravel, Postgres and Docker. How each part maps is in

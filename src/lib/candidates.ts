@@ -30,6 +30,7 @@ import { analyzeCv } from './analyze';
 import { deliver, type MailAttachment } from './mailer';
 import { buildIcs } from './ics';
 import { notifyEvent } from './notify';
+import { getSystemConfig } from './system-config';
 import { indexCandidate, removeFromIndex } from './search';
 import { getSettings, writeTemplate } from './settings';
 import { isLocalDateTime, localNow } from './time';
@@ -119,9 +120,9 @@ export async function getCandidate(s: Session, id: string): Promise<CandidateDet
     }
   }
   const notes = db.prepare('SELECT id, author, text, created_at AS createdAt FROM notes WHERE candidate_id = ? ORDER BY id').all(id) as CandidateDetail['notes'];
-  const events = db.prepare('SELECT id, at, actor, text FROM events WHERE candidate_id = ? ORDER BY at, id').all(id) as CandidateDetail['events'];
+  const events = db.prepare('SELECT id, at, actor, text, kind FROM events WHERE candidate_id = ? ORDER BY at, id').all(id) as CandidateDetail['events'];
   const emails = db
-    .prepare('SELECT id, at, template, to_addr AS "to", subject, body, status, actor, error, attachment FROM emails WHERE candidate_id = ? ORDER BY at, id')
+    .prepare('SELECT id, at, template, to_addr AS "to", subject, body, status, direction, actor, error, attachment FROM emails WHERE candidate_id = ? ORDER BY at, id')
     .all(id) as EmailDto[];
   const feedback = db
     .prepare('SELECT id, author, at, communication, knowledge, fit, recommendation, comment FROM feedback WHERE candidate_id = ? ORDER BY at, id')
@@ -182,7 +183,7 @@ export function addAttachment(
     id, candidateId, kind, clean, mime, bytes.byteLength, nowIso(), actor,
   );
   const label = ATTACHMENT_KINDS.find((k) => k.id === kind)?.label ?? 'Dokument';
-  addEvent(candidateId, actor, `Dodano załącznik: ${label.toLowerCase()} (${clean})`);
+  addEvent(candidateId, actor, `Dodano załącznik: ${label.toLowerCase()} (${clean})`, 'file');
   return { attachment: toAttachment(db.prepare('SELECT * FROM attachments WHERE id = ?').get(id) as AttachmentRow) };
 }
 
@@ -195,7 +196,7 @@ export function removeAttachment(s: Session, candidateId: string, id: string): b
   } catch {
     /* already gone */
   }
-  addEvent(candidateId, s.name, `Usunięto załącznik: ${a.name}`);
+  addEvent(candidateId, s.name, `Usunięto załącznik: ${a.name}`, 'file');
   audit(s.name, 'delete-attachment', `${a.name} (profil ${candidateId})`);
   return true;
 }
@@ -210,6 +211,42 @@ function removeAttachmentFiles(candidateId: string) {
   }
 }
 
+/**
+ * Every message to a candidate carries a short reference, so that the candidate's answer (which keeps the subject) lands
+ * on the same profile instead of becoming a new application.
+ */
+export const threadTag = (id: string) => `[#${id.slice(0, 8)}]`;
+const withTag = (subject: string, id: string) => (subject.includes(threadTag(id)) ? subject : `${subject} ${threadTag(id)}`);
+
+/** The profile a reply belongs to: the subject has its reference and the sender is the candidate (so nobody can write into a stranger's profile). */
+function findThreadedProfile(subject: string, email: string): Row | undefined {
+  const m = subject.match(/\[#([A-Za-z0-9-]{4,8})\]/);
+  if (!m || !email) return undefined;
+  const rows = getDb().prepare('SELECT * FROM candidates WHERE id LIKE ? AND lower(email) = lower(?)').all(`${m[1]}%`, email) as Row[];
+  return rows.length === 1 ? rows[0] : undefined;
+}
+
+/** Keeps a message received from a candidate in the correspondence of the profile. */
+function recordIncoming(row: Row, subject: string, text: string, from: string, label: string) {
+  const mailbox = getSystemConfig().mailbox;
+  getDb()
+    .prepare("INSERT INTO emails (candidate_id, at, template, to_addr, subject, body, status, actor, error, attachment, direction) VALUES (?, ?, 'incoming', ?, ?, ?, 'received', ?, '', '', 'in')")
+    .run(row.id, nowIso(), mailbox, subject.slice(0, 300), text.trim().slice(0, 20000) || '(bez treści)', from.slice(0, 300) || row.email);
+  addEvent(row.id, from.slice(0, 100) || row.email, label, 'mail');
+}
+
+/** A free-text message from HR to the candidate, sent from the company mailbox like every other message. */
+export async function sendCustomEmail(row: Row, subject: string, body: string, actor: string) {
+  const full = withTag(subject, row.id);
+  const res = await deliver({ to: row.email, subject: full, text: body });
+  getDb()
+    .prepare("INSERT INTO emails (candidate_id, at, template, to_addr, subject, body, status, actor, error, attachment, direction) VALUES (?, ?, 'custom', ?, ?, ?, ?, ?, ?, '', 'out')")
+    .run(row.id, nowIso(), row.email, full, body, res.status, actor, res.error);
+  const how = res.status === 'sent' ? 'wysłano' : res.status === 'simulated' ? 'symulacja' : `błąd wysyłki: ${res.error}`;
+  addEvent(row.id, actor, `Wiadomość do kandydata: ${subject} (${how})`, 'mail');
+  return res;
+}
+
 /** Sends (or, without SMTP, only records) one of the standard messages and logs it on the profile. */
 export async function sendTemplateEmail(row: Row, template: EmailTemplate, actor: string, extra: { missing?: MissingItem[] } = {}) {
   const t = writeTemplate(template, { position: row.position, interviewAt: row.interview_at, missing: extra.missing });
@@ -217,13 +254,14 @@ export async function sendTemplateEmail(row: Row, template: EmailTemplate, actor
   const attachments: MailAttachment[] = [];
   const ics = template === 'invite' ? interviewIcs(row) : null;
   if (ics) attachments.push({ filename: 'rozmowa.ics', content: ics, contentType: 'text/calendar; charset=utf-8; method=PUBLISH' });
-  const res = await deliver({ to: row.email, subject: t.subject, text: t.body, attachments });
+  const subject = withTag(t.subject, row.id);
+  const res = await deliver({ to: row.email, subject, text: t.body, attachments });
   getDb()
     .prepare('INSERT INTO emails (candidate_id, at, template, to_addr, subject, body, status, actor, error, attachment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(row.id, nowIso(), template, row.email, t.subject, t.body, res.status, actor, res.error, attachments.map((a) => a.filename).join(', '));
+    .run(row.id, nowIso(), template, row.email, subject, t.body, res.status, actor, res.error, attachments.map((a) => a.filename).join(', '));
   const how = res.status === 'sent' ? 'wysłano' : res.status === 'simulated' ? 'symulacja' : `błąd wysyłki: ${res.error}`;
   const what = extra.missing?.length ? `: ${extra.missing.map((m) => MISSING_SHORT[m]).join(', ')}` : '';
-  addEvent(row.id, actor, `${label}${what} (${how})`);
+  addEvent(row.id, actor, `${label}${what} (${how})`, 'mail');
   if (template === 'rejection' && res.status !== 'failed') {
     getDb().prepare('UPDATE candidates SET rejection_sent = 1 WHERE id = ?').run(row.id);
   }
@@ -247,6 +285,8 @@ const MAX_CV_TEXT = 100_000;
 export type IngestInput = {
   buffer?: Uint8Array;
   fileName?: string;
+  /** The text of the message: it often says which position and city the application is about. */
+  text?: string;
   /** Further files of the same message (cover letter, certificates ...) kept as attachments. */
   extras?: { name: string; bytes: Uint8Array }[];
   from: string;
@@ -374,6 +414,7 @@ async function applyCompletion(
     changes.length
       ? `Uzupełnienie zgłoszenia (${input.via}): ${changes.join(', ')}`
       : `Wiadomość od kandydata (${input.via}) nie zawierała brakujących danych`,
+    'data',
   );
   if (changes.length && !still.length) addEvent(row.id, 'system', 'Zgłoszenie jest kompletne');
   else if (still.length) addEvent(row.id, 'system', `Nadal brakuje: ${still.map((m) => MISSING_SHORT[m]).join(', ')}`);
@@ -397,6 +438,7 @@ export async function ingestApplication(rawInput: IngestInput): Promise<IngestRe
     from: rawInput.from.slice(0, 300),
     subject: rawInput.subject.slice(0, 300),
     fileName: rawInput.fileName?.slice(0, 200),
+    text: (rawInput.text ?? '').slice(0, 20000),
   };
   const db = getDb();
   const { rawText, parsed, cvState } = await readCv(input.buffer);
@@ -404,17 +446,29 @@ export async function ingestApplication(rawInput: IngestInput): Promise<IngestRe
   const name = parsed?.name || sender.name || 'Nieznany kandydat';
   const email = parsed?.email || sender.address;
 
-  // the answer to a request for missing data completes that profile
+  // an answer to a message of the company (its subject carries the reference) belongs to that profile; so does the
+  // answer to a request for missing data
   const waiting = email && input.channel === 'E-mail' ? findWaitingProfile(email) : undefined;
-  if (waiting) {
-    const done = await applyCompletion(waiting, { buffer: input.buffer, fileName: input.fileName, subject: input.subject, actor: 'system', via: 'e-mail' });
-    storeExtras(waiting.id, input.extras);
-    audit(input.actor, 'ingest-reply', `Uzupełnienie od kandydata: ${waiting.name} (${done.row.city})`);
-    return { id: waiting.id, needsReview: !!done.row.needs_review, missing: computeMissing(done.row), infoRequested: false, merged: true };
+  const threaded = email && input.channel === 'E-mail' ? findThreadedProfile(input.subject, email) : undefined;
+  const target = threaded ?? waiting;
+  if (target) {
+    let row = target;
+    if (waiting?.id === target.id || (input.buffer && target.cv_state !== 'ok')) {
+      const done = await applyCompletion(target, { buffer: input.buffer, fileName: input.fileName, subject: input.subject, actor: 'system', via: 'e-mail' });
+      row = done.row;
+    }
+    recordIncoming(target, input.subject, input.text ?? '', sender.name || sender.address || email, `Odpowiedź kandydata (e-mail): ${input.subject.slice(0, 120)}`);
+    storeExtras(target.id, input.extras);
+    audit(input.actor, 'ingest-reply', `Odpowiedź lub uzupełnienie od kandydata: ${target.name} (${row.city})`);
+    return { id: target.id, needsReview: !!row.needs_review, missing: computeMissing(row), infoRequested: false, merged: true };
   }
 
   let city = detectCity(input.subject);
   let cityBasis = city ? 'tytułu wiadomości' : '';
+  if (!city && input.text) {
+    city = detectCity(input.text);
+    if (city) cityBasis = 'treści wiadomości';
+  }
   if (!city && parsed?.city) {
     city = parsed.city;
     cityBasis = parsed.cityBasis;
@@ -423,7 +477,7 @@ export async function ingestApplication(rawInput: IngestInput): Promise<IngestRe
     city = UNASSIGNED_CITY;
     cityBasis = 'nie ustalono';
   }
-  const position = detectPosition([input.subject]) || parsed?.position || UNKNOWN_POSITION;
+  const position = detectPosition([input.subject]) || (input.text ? detectPosition(input.text.split('\n')) : '') || parsed?.position || UNKNOWN_POSITION;
 
   const needsReview = !parsed || !parsed.name || city === UNASSIGNED_CITY || position === UNKNOWN_POSITION || !email;
 
@@ -478,6 +532,7 @@ export async function ingestApplication(rawInput: IngestInput): Promise<IngestRe
 
   const row = db.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as Row;
   storeExtras(id, input.extras);
+  if (input.channel === 'E-mail' && input.text?.trim()) recordIncoming(row, input.subject, input.text, sender.name || sender.address || email, 'Treść wiadomości od kandydata zapisana w korespondencji');
   void notifyEvent('new', row);
   const missing = computeMissing(row);
   let infoRequested = false;
@@ -513,6 +568,7 @@ export async function ingestEml(buffer: Uint8Array, actor: string, autoAck = fal
     extras: mail.attachments.filter((a) => a !== pdf).slice(0, MAX_ATTACHMENTS).map((a) => ({ name: a.filename || 'załącznik', bytes: new Uint8Array(a.content) })),
     from: mail.from?.text || '',
     subject: mail.subject || '',
+    text: mail.text || '',
     receivedAt: mail.date ? mail.date.toISOString() : undefined,
     channel: 'E-mail',
     actor,
@@ -549,7 +605,7 @@ export async function bulkAction(s: Session, action: 'reject-and-thank' | 'thank
       if (!row || statusKind(row.status) === 'rejected') continue;
       const rejected = firstOfKind('rejected');
       db.prepare('UPDATE candidates SET status = ? WHERE id = ?').run(rejected, id);
-      addEvent(id, s.name, `Zmiana statusu: ${statusLabel(row.status)} → ${statusLabel(rejected)} (operacja zbiorcza)`);
+      addEvent(id, s.name, `Zmiana statusu: ${statusLabel(row.status)} → ${statusLabel(rejected)} (operacja zbiorcza)`, 'status');
       await sendTemplateEmail({ ...row, status: rejected }, 'rejection', s.name);
       done++;
     }
@@ -751,7 +807,7 @@ export function addFeedback(
   getDb()
     .prepare('INSERT INTO feedback (candidate_id, author, at, communication, knowledge, fit, recommendation, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(candidateId, s.name, nowIso(), f.communication, f.knowledge, f.fit, f.recommendation, f.comment);
-  addEvent(candidateId, s.name, 'Dodano opinię z rozmowy');
+  addEvent(candidateId, s.name, 'Dodano opinię z rozmowy', 'opinion');
 }
 
 /**
@@ -791,7 +847,7 @@ export function mergeDuplicate(s: Session, id: string): { ok: true; targetId: st
       /* already gone */
     }
   }
-  addEvent(target.id, s.name, `Połączono z duplikatem (zgłoszenie z ${src.received_at.slice(0, 10)}, ${src.city}); notatki i korespondencja przeniesione`);
+  addEvent(target.id, s.name, `Połączono z duplikatem (zgłoszenie z ${src.received_at.slice(0, 10)}, ${src.city}); notatki i korespondencja przeniesione`, 'merge');
   audit(s.name, 'merge', `Połączono duplikat ${src.name} (${src.city}, ${src.received_at.slice(0, 10)}) z profilem ${target.id}`);
   return { ok: true, targetId: target.id };
 }

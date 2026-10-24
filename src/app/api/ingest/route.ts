@@ -42,6 +42,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as {
     from?: string;
     subject?: string;
+    text?: string;
     receivedAt?: string;
     attachments?: { name?: string; contentBase64?: string }[];
   } | null;
@@ -69,6 +70,7 @@ export async function POST(req: Request) {
     extras,
     from: body.from,
     subject: typeof body.subject === 'string' ? body.subject : '',
+    text: typeof body.text === 'string' ? body.text : '',
     receivedAt: typeof body.receivedAt === 'string' ? body.receivedAt : undefined,
     channel: 'E-mail',
     actor: 'webhook',

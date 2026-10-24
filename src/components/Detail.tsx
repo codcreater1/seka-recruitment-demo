@@ -5,6 +5,7 @@ import {
   ATTACHMENT_KINDS,
   CITIES,
   EMAIL_TEMPLATE_LABEL,
+  EVENT_KINDS,
   FEEDBACK_CRITERIA,
   MISSING_SHORT,
   firstOfKind,
@@ -18,6 +19,7 @@ import {
   type AttachmentKind,
   type CandidateDetail,
   type EmailTemplate,
+  type EventKind,
   type Recommendation,
   type Session,
   type StatusId,
@@ -50,6 +52,9 @@ type Props = {
   onAttachCv: (file: File) => Promise<boolean>;
   onDelete: () => Promise<void>;
   onMerge: () => Promise<void>;
+  /** The company mailbox every message is sent from. */
+  mailbox: string;
+  onSendCustom: (subject: string, body: string) => Promise<boolean>;
   onAddAttachment: (file: File, kind: AttachmentKind) => Promise<boolean>;
   onDeleteAttachment: (id: string) => Promise<void>;
   onOpen: (id: string) => void;
@@ -58,11 +63,11 @@ type Props = {
 type Tab = 'overview' | 'cv' | 'opinions' | 'mail' | 'history';
 
 const RODO_LABEL = ['Brak klauzuli w CV', 'Klauzula na czas rekrutacji', 'Klauzula także na przyszłe rekrutacje'];
-const MAIL_STATUS: Record<string, string> = { sent: 'wysłano', simulated: 'symulacja', failed: 'błąd wysyłki' };
+const MAIL_STATUS: Record<string, string> = { sent: 'wysłano', simulated: 'symulacja', failed: 'błąd wysyłki', received: 'otrzymano' };
 const HIDDEN = '— ukryte (tryb anonimowy)';
 
 export default function Detail({
-  c, session, anon, vacancies, onBack, onClose, onPatch, onNote, onFeedback, onSendEmail, onAttachCv, onDelete, onMerge, onAddAttachment, onDeleteAttachment, onOpen,
+  c, session, anon, vacancies, onBack, onClose, onPatch, onNote, onFeedback, onSendEmail, onAttachCv, onDelete, onMerge, mailbox, onSendCustom, onAddAttachment, onDeleteAttachment, onOpen,
 }: Props) {
   const edit = session.canEdit;
   const [tab, setTab] = useState<Tab>('overview');
@@ -70,6 +75,9 @@ export default function Detail({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmMerge, setConfirmMerge] = useState(false);
   const [attKind, setAttKind] = useState<AttachmentKind>('cover');
+  const [mailSubject, setMailSubject] = useState('');
+  const [mailBody, setMailBody] = useState('');
+  const [histFilter, setHistFilter] = useState<EventKind | 'all'>('all');
   const [fb, setFb] = useState<FeedbackInput>({ communication: 3, knowledge: 3, fit: 3, recommendation: 'warunkowo', comment: '' });
   const pipeline = pipelineIds();
   const idx = pipeline.indexOf(c.status);
@@ -617,7 +625,8 @@ export default function Detail({
             {c.emails.length ? (
               <div>
                 {[...c.emails].reverse().map((m) => {
-                  const label = EMAIL_TEMPLATE_LABEL[m.template as EmailTemplate] || m.subject;
+                  const incoming = m.direction === 'in';
+                  const label = incoming ? 'Wiadomość od kandydata' : EMAIL_TEMPLATE_LABEL[m.template as EmailTemplate] || (m.template === 'custom' ? 'Wiadomość' : m.subject);
                   return (
                     <details className="mail" key={m.id}>
                       <summary>
@@ -626,7 +635,7 @@ export default function Detail({
                         <span className="m-when">{fmtDate(m.at)}</span>
                       </summary>
                       <div className="hint" style={{ marginTop: '0.375rem' }}>
-                        Do: {anon ? HIDDEN : m.to} · Temat: {m.subject} · Wysłał(a): {m.actor}
+                        {incoming ? `Od: ${anon ? HIDDEN : m.actor} · Do: ${m.to}` : `Z: ${mailbox} · Do: ${anon ? HIDDEN : m.to}`} · Temat: {m.subject}{incoming ? '' : ` · Wysłał(a): ${m.actor}`}
                         {m.attachment ? ` · Załącznik: ${m.attachment}` : ''}
                       </div>
                       {m.error && <div className="err">{m.error}</div>}
@@ -636,7 +645,39 @@ export default function Detail({
                 })}
               </div>
             ) : (
-              <p className="hint">Do tego kandydata nie wysłano jeszcze żadnych wiadomości.</p>
+              <p className="hint">Z tym kandydatem nie ma jeszcze korespondencji.</p>
+            )}
+            {edit && !anon && (
+              <form
+                className="fb-form"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (await onSendCustom(mailSubject, mailBody)) {
+                    setMailSubject('');
+                    setMailBody('');
+                  }
+                }}
+              >
+                <h3>Nowa wiadomość do kandydata</h3>
+                {c.email ? (
+                  <>
+                    <p className="hint">Wszystkie wiadomości wychodzą ze skrzynki {mailbox}, niezależnie od tego, kto je wysyła. Odpowiedź kandydata trafia do tego profilu.</p>
+                    <div className="field">
+                      <label htmlFor="mail-subject">Temat</label>
+                      <input id="mail-subject" value={mailSubject} maxLength={200} onChange={(e) => setMailSubject(e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="mail-body">Treść</label>
+                      <textarea id="mail-body" rows={6} value={mailBody} maxLength={10000} onChange={(e) => setMailBody(e.target.value)} />
+                    </div>
+                    <button className="btn small primary" type="submit" disabled={!mailSubject.trim() || !mailBody.trim()}>
+                      Wyślij
+                    </button>
+                  </>
+                ) : (
+                  <p className="hint">Brak adresu e-mail kandydata.</p>
+                )}
+              </form>
             )}
           </section>
         )}
@@ -645,13 +686,28 @@ export default function Detail({
           <>
             <section className="sec">
               <h3>Historia zgłoszenia</h3>
-              <ol className="timeline">
-                {[...c.events].reverse().map((ev) => (
-                  <li key={ev.id}>
-                    <time>{fmtDate(ev.at)}</time>
-                    <span>{ev.text}</span>
-                  </li>
+              <div className="chips" role="group" aria-label="Filtr historii">
+                {[{ id: 'all' as const, label: 'Wszystko' }, ...EVENT_KINDS.filter((k) => c.events.some((ev) => ev.kind === k.id))].map((k) => (
+                  <button key={k.id} className={`btn small${histFilter === k.id ? ' primary' : ''}`} type="button" aria-pressed={histFilter === k.id} onClick={() => setHistFilter(k.id)}>
+                    {k.label}
+                    {k.id !== 'all' && <span className="n"> {c.events.filter((ev) => ev.kind === k.id).length}</span>}
+                  </button>
                 ))}
+              </div>
+              <ol className="timeline">
+                {[...c.events]
+                  .filter((ev) => histFilter === 'all' || ev.kind === histFilter)
+                  .reverse()
+                  .map((ev, i, all) => (
+                    <li key={ev.id}>
+                      {(i === 0 || fmtDay(all[i - 1].at) !== fmtDay(ev.at)) && <strong className="tl-day">{fmtDay(ev.at)}</strong>}
+                      <time>{fmtDate(ev.at)}</time>
+                      <span>
+                        <span className="badge">{EVENT_KINDS.find((k) => k.id === ev.kind)?.label ?? ev.kind}</span> {ev.text}
+                        <small className="hint"> · {ev.actor === 'system' ? 'system' : anon ? HIDDEN : ev.actor}</small>
+                      </span>
+                    </li>
+                  ))}
               </ol>
             </section>
 

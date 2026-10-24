@@ -214,7 +214,19 @@ export type Session = {
 };
 
 export type NoteDto = { id: number; author: string; text: string; createdAt: string };
-export type EventDto = { id: number; at: string; actor: string; text: string };
+/** What kind of thing happened; the history can be filtered by it. */
+export type EventKind = 'status' | 'data' | 'mail' | 'note' | 'opinion' | 'file' | 'merge' | 'system';
+export const EVENT_KINDS: { id: EventKind; label: string }[] = [
+  { id: 'status', label: 'Statusy' },
+  { id: 'data', label: 'Zmiany danych' },
+  { id: 'mail', label: 'Korespondencja' },
+  { id: 'note', label: 'Notatki' },
+  { id: 'opinion', label: 'Opinie' },
+  { id: 'file', label: 'Pliki' },
+  { id: 'merge', label: 'Łączenie' },
+  { id: 'system', label: 'System' },
+];
+export type EventDto = { id: number; at: string; actor: string; text: string; kind: EventKind };
 
 export type CandidateListItem = {
   id: string;
@@ -287,7 +299,9 @@ export type EmailDto = {
   to: string;
   subject: string;
   body: string;
-  status: 'simulated' | 'sent' | 'failed';
+  status: 'simulated' | 'sent' | 'failed' | 'received';
+  /** out: sent by the company from its mailbox; in: received from the candidate. */
+  direction: 'out' | 'in';
   actor: string;
   error: string;
   attachment: string;

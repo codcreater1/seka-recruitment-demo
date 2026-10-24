@@ -405,6 +405,8 @@ details.raw pre { margin: 0.5rem 0 0; padding: 0.75rem; max-height: 15rem; overf
 .fb-grid select { width: 100%; }
 .timeline li { display: grid; grid-template-columns: 8.25rem minmax(0, 1fr); gap: 0.625rem; padding: 0.3125rem 0; font-size: 0.8125rem; }
 .timeline time { font-size: 0.75rem; color: var(--muted); }
+.timeline .tl-day { grid-column: 1 / -1; margin-top: 0.5rem; font-size: 0.8125rem; }
+.timeline .badge { margin-right: 0.25rem; }
 .gdpr { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 
 /* ---------- board ---------- */

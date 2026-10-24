@@ -82,6 +82,7 @@ const VIEW_TITLE: Record<View, string> = {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [mailbox, setMailbox] = useState('kariera@seka.pl');
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const [authMode, setAuthMode] = useState<'demo' | 'entra'>('demo');
   const [items, setItems] = useState<CandidateListItem[]>([]);
@@ -137,8 +138,9 @@ export default function App() {
   }, []);
 
   const loadSession = useCallback(async () => {
-    const data = await api<{ session: Session; accounts: RoleOption[]; authMode: 'demo' | 'entra'; statuses: StatusDef[] }>('/api/session');
+    const data = await api<{ session: Session; accounts: RoleOption[]; authMode: 'demo' | 'entra'; statuses: StatusDef[]; mailbox: string }>('/api/session');
     setStatusList(data.statuses);
+    setMailbox(data.mailbox);
     setSession(data.session);
     setRoles(data.accounts);
     setAuthMode(data.authMode);
@@ -469,6 +471,23 @@ export default function App() {
     }
   };
 
+  const sendCustom = async (subject: string, body: string) => {
+    if (!selId) return false;
+    try {
+      const data = await api<{ candidate: CandidateDetail; delivery: string }>(`/api/candidates/${selId}/emails`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ template: 'custom', subject, body }),
+      });
+      applyDetail(data.candidate);
+      say(data.delivery === 'failed' ? 'Nie udało się wysłać wiadomości' : data.delivery === 'simulated' ? 'Wiadomość zapisana (symulacja, serwer SMTP nie jest skonfigurowany)' : 'Wiadomość wysłana');
+      return true;
+    } catch (e) {
+      say((e as Error).message);
+      return false;
+    }
+  };
+
   const remove = async () => {
     if (!selId) return;
     try {
@@ -669,6 +688,8 @@ export default function App() {
         onAttachCv={attachCv}
         onDelete={remove}
         onMerge={merge}
+        mailbox={mailbox}
+        onSendCustom={sendCustom}
         onAddAttachment={addAttachment}
         onDeleteAttachment={deleteAttachment}
         onOpen={(id) => setSelId(id)}

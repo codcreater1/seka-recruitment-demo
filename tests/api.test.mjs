@@ -529,6 +529,53 @@ test('system settings: system administrator only, secrets are encrypted and neve
   assert.equal(cleared.secrets.smtpPass.set, false);
 });
 
+test('one mailbox: free-text messages, replies land on the profile, the message text is read, history has kinds', async () => {
+  const headers = { 'x-api-key': KEY };
+  // the text of the message says which position and city it is about
+  const first = await post('/api/ingest', {
+    from: 'Jan Korespondent <jan.korespondent@example.net>',
+    subject: 'Zgłoszenie',
+    text: 'Dzień dobry, chciałbym aplikować na stanowisko księgowego w Poznaniu. Pozdrawiam, Jan',
+  }, null, headers);
+  assert.equal(first.status, 201);
+  const d = await detail(first.body.id);
+  assert.equal(d.city, 'Poznań');
+  assert.equal(d.position, 'Księgowy');
+  assert.equal(d.cityBasis, 'treści wiadomości');
+  assert.ok(d.emails.some((m) => m.direction === 'in' && m.body.includes('księgowego')), 'the message is kept in the correspondence');
+  const tag = `[#${first.body.id.slice(0, 8)}]`;
+  assert.ok(d.emails.filter((m) => m.direction === 'out').every((m) => m.subject.includes(tag)), 'company messages carry the reference');
+
+  // HR writes freely; only HR may
+  const send = (cookie, body) => post(`/api/candidates/${first.body.id}/emails`, { template: 'custom', ...body }, cookie);
+  assert.equal((await send(MANAGER, { subject: 'x', body: 'y' })).status, 403);
+  assert.equal((await send(undefined, { subject: '', body: 'y' })).status, 400);
+  assert.equal((await send(undefined, { subject: 'Termin rozmowy', body: 'Proponujemy wtorek, godz. 10.' })).status, 201);
+  const sent = (await detail(first.body.id)).emails.find((m) => m.template === 'custom');
+  assert.equal(sent.direction, 'out');
+  assert.ok(sent.subject.startsWith('Termin rozmowy') && sent.subject.includes(tag));
+
+  // the candidate answers: the subject keeps the reference, so no new application is made
+  const before = (await candidates()).length;
+  const reply = await post('/api/ingest', { from: 'jan.korespondent@example.net', subject: `Re: Termin rozmowy ${tag}`, text: 'Wtorek mi odpowiada.' }, null, headers);
+  assert.equal(reply.body.merged, true);
+  assert.equal(reply.body.id, first.body.id);
+  assert.equal((await candidates()).length, before);
+  const afterReply = await detail(first.body.id);
+  assert.ok(afterReply.emails.some((m) => m.direction === 'in' && m.body === 'Wtorek mi odpowiada.'));
+  // a stranger using the reference does not get into the profile
+  const stranger = await post('/api/ingest', { from: 'ktos.obcy@example.net', subject: `Re: Termin rozmowy ${tag} (Gdańsk)`, text: 'Hej' }, null, headers);
+  assert.notEqual(stranger.body.id, first.body.id);
+  assert.equal((await detail(first.body.id)).emails.filter((m) => m.direction === 'in').length, afterReply.emails.filter((m) => m.direction === 'in').length);
+
+  // the history tells what happened, by kind
+  assert.equal((await patch(`/api/candidates/${first.body.id}`, { status: 'screening' })).status, 200);
+  assert.equal((await post(`/api/candidates/${first.body.id}/notes`, { text: 'Dobre wrażenie' })).status, 201);
+  const kinds = (await detail(first.body.id)).events.map((e) => e.kind);
+  for (const k of ['status', 'note', 'mail', 'system']) assert.ok(kinds.includes(k), 'event kind ' + k);
+  assert.ok((await detail(first.body.id)).events.every((e) => e.at && e.actor && e.text));
+});
+
 test('every seeded CV is read back correctly', async () => {
   const seed = JSON.parse(fs.readFileSync(path.join(root, 'seed', 'seed.json'), 'utf8'));
   const failures = [];
@@ -861,13 +908,13 @@ test('administration: wording, switches and retention take effect and are logged
   const ok = await ingest({ from: 'Ala Testowa <ala.ack@example.com>', subject: 'Aplikacja – Specjalista ds. ochrony środowiska (Wrocław)', attachments: cv('incoming/CV_izabela_nowicka.pdf') });
   assert.deepEqual(ok.body.missing, []);
   const ack = (await detail(ok.body.id)).emails.find((m) => m.template === 'ack');
-  assert.equal(ack.subject, 'Własny temat');
+  assert.ok(ack.subject.startsWith('Własny temat'), 'the administrator\'s subject, followed by the reference');
   assert.equal(ack.body, 'Cześć! Dziękujemy za zgłoszenie na stanowisko Specjalista ds. ochrony środowiska. Do zobaczenia.');
   // back to the default text
   assert.equal((await put('/api/admin/settings', { templates: { ack: null } }, ADMIN)).status, 200);
   assert.equal((await settings()).templates.find((t) => t.id === 'ack').customized, false);
   const dflt = await ingest({ from: 'Ola Domyslna <ola.default@example.com>', subject: 'Aplikacja – Specjalista ds. ochrony środowiska (Wrocław)', attachments: cv('incoming/CV_izabela_nowicka.pdf') });
-  assert.equal((await detail(dflt.body.id)).emails.find((m) => m.template === 'ack').subject, 'Potwierdzenie otrzymania zgłoszenia');
+  assert.ok((await detail(dflt.body.id)).emails.find((m) => m.template === 'ack').subject.startsWith('Potwierdzenie otrzymania zgłoszenia'));
 
   // the request for missing data can be switched off: the candidate then only gets the acknowledgement
   assert.equal((await put('/api/admin/settings', { autoMissing: false }, ADMIN)).status, 200);

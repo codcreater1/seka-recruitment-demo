@@ -30,14 +30,15 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
   const set: string[] = [];
   const args: unknown[] = [];
-  const events: string[] = [];
+  const events: { text: string; kind: 'status' | 'data' }[] = [];
+  const log = (text: string, kind: 'status' | 'data' = 'data') => events.push({ text, kind });
 
   if ('status' in body) {
     if (!isStatus(body.status)) return badRequest('Nieznany status.');
     if (body.status !== row.status) {
       set.push('status = ?');
       args.push(body.status);
-      events.push(`Zmiana statusu: ${statusLabel(row.status)} → ${statusLabel(body.status)}`);
+      log(`Zmiana statusu: ${statusLabel(row.status)} → ${statusLabel(body.status)}`, 'status');
       if (statusKind(body.status) !== 'rejected') set.push('rejection_sent = 0');
     }
   }
@@ -46,7 +47,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     if (body.city !== row.city) {
       set.push('city = ?', "city_basis = 'ręcznej korekty HR'", 'needs_review = 0');
       args.push(body.city);
-      events.push(`Zmieniono miasto: ${row.city} → ${body.city} (ręczna korekta)`);
+      log(`Zmieniono miasto: ${row.city} → ${body.city} (ręczna korekta)`);
     }
   }
   if ('position' in body) {
@@ -54,7 +55,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     if (body.position !== row.position) {
       set.push('position = ?');
       args.push(body.position);
-      events.push(`Zmieniono stanowisko: ${row.position} → ${body.position} (ręczna korekta)`);
+      log(`Zmieniono stanowisko: ${row.position} → ${body.position} (ręczna korekta)`);
     }
   }
   if ('rating' in body) {
@@ -63,14 +64,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
     if (!valid) return badRequest('Ocena musi być liczbą od 1 do 5.');
     set.push('rating = ?');
     args.push(r);
-    events.push(r === null ? 'Usunięto ocenę kandydata' : `Ustawiono ocenę: ${r}/5`);
+    log(r === null ? 'Usunięto ocenę kandydata' : `Ustawiono ocenę: ${r}/5`);
   }
   if ('interviewAt' in body) {
     const v = body.interviewAt;
     if (v !== null && !isLocalDateTime(v)) return badRequest('Nieprawidłowy termin rozmowy.');
     set.push('interview_at = ?');
     args.push(v);
-    events.push(v === null ? 'Usunięto termin rozmowy' : `Ustalono termin rozmowy: ${String(v).replace('T', ' ')}`);
+    log(v === null ? 'Usunięto termin rozmowy' : `Ustalono termin rozmowy: ${String(v).replace('T', ' ')}`);
   }
   if ('vacancyId' in body) {
     const v = body.vacancyId;
@@ -79,20 +80,20 @@ export async function PATCH(req: Request, { params }: Ctx) {
       set.push('vacancy_id = ?');
       args.push(v);
       const label = v ? listVacancies({ ...session, city: null }).find((x) => x.id === v) : null;
-      events.push(label ? `Przypisano do ogłoszenia: ${label.position} (${label.city})` : 'Odpięto od ogłoszenia');
+      log(label ? `Przypisano do ogłoszenia: ${label.position} (${label.city})` : 'Odpięto od ogłoszenia');
     }
   }
   if (body.confirmReview === true && row.needs_review) {
     set.push('needs_review = 0');
-    events.push('Dane kandydata sprawdzone i zatwierdzone');
+    log('Dane kandydata sprawdzone i zatwierdzone');
   }
   if (body.dismissDuplicate === true && row.duplicate_of) {
     set.push('duplicate_of = NULL');
-    events.push('Oznaczono jako niebędące duplikatem');
+    log('Oznaczono jako niebędące duplikatem');
   }
   if (set.length) {
     getDb().prepare(`UPDATE candidates SET ${set.join(', ')} WHERE id = ?`).run(...args, id);
-    events.forEach((e) => addEvent(id, session.name, e));
+    events.forEach((e) => addEvent(id, session.name, e.text, e.kind));
     if (typeof body.interviewAt === 'string' && body.interviewAt !== row.interview_at) {
       const fresh = getRow(session, id);
       if (fresh) void notifyEvent('interview', fresh);

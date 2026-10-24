@@ -14,6 +14,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
   if (!text || text.length > 2000) return badRequest('Notatka musi mieć od 1 do 2000 znaków.');
   getDb().prepare('INSERT INTO notes (candidate_id, author, text, created_at) VALUES (?, ?, ?, ?)').run(id, session.name, text, nowIso());
-  addEvent(id, session.name, session.canEdit ? 'Dodano notatkę' : 'Dodano komentarz kierownika');
+  addEvent(id, session.name, session.canEdit ? 'Dodano notatkę' : 'Dodano komentarz kierownika', 'note');
   return json({ candidate: await getCandidate(session, id) }, 201);
 }
