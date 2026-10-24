@@ -66,6 +66,14 @@ const RODO_LABEL = ['Brak klauzuli w CV', 'Klauzula na czas rekrutacji', 'Klauzu
 const MAIL_STATUS: Record<string, string> = { sent: 'wysłano', simulated: 'symulacja', failed: 'błąd wysyłki', received: 'otrzymano' };
 const HIDDEN = '— ukryte (tryb anonimowy)';
 
+/** The kind of an added document is guessed from its name, so nobody has to choose it. */
+function guessKind(name: string): AttachmentKind {
+  const n = name.toLowerCase();
+  if (/(list|motywac|cover|letter)/.test(n)) return 'cover';
+  if (/(certyfik|certificate|świadect|swiadect|dyplom|diploma|kurs)/.test(n)) return 'certificate';
+  return 'other';
+}
+
 export default function Detail({
   c, session, anon, vacancies, onBack, onClose, onPatch, onNote, onFeedback, onSendEmail, onAttachCv, onDelete, onMerge, mailbox, onSendCustom, onAddAttachment, onDeleteAttachment, onOpen,
 }: Props) {
@@ -74,10 +82,11 @@ export default function Detail({
   const [note, setNote] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmMerge, setConfirmMerge] = useState(false);
-  const [attKind, setAttKind] = useState<AttachmentKind>('cover');
   const [mailSubject, setMailSubject] = useState('');
   const [mailBody, setMailBody] = useState('');
+  const [composing, setComposing] = useState(false);
   const [histFilter, setHistFilter] = useState<EventKind | 'all'>('all');
+  const [histFilterOpen, setHistFilterOpen] = useState(false);
   const [fb, setFb] = useState<FeedbackInput>({ communication: 3, knowledge: 3, fit: 3, recommendation: 'warunkowo', comment: '' });
   const pipeline = pipelineIds();
   const idx = pipeline.indexOf(c.status);
@@ -494,12 +503,6 @@ export default function Detail({
                 )}
                 {edit && (
                   <div className="attach">
-                    <label htmlFor="att-kind" className="hint">Rodzaj</label>
-                    <select id="att-kind" value={attKind} onChange={(e) => setAttKind(e.target.value as AttachmentKind)}>
-                      {ATTACHMENT_KINDS.map((k) => (
-                        <option key={k.id} value={k.id}>{k.label}</option>
-                      ))}
-                    </select>
                     <label className="btn small primary" htmlFor="att-file">Dodaj załącznik…</label>
                     <input
                       id="att-file"
@@ -509,10 +512,10 @@ export default function Detail({
                       onChange={async (e) => {
                         const f = e.target.files?.[0];
                         e.target.value = '';
-                        if (f) await onAddAttachment(f, attKind);
+                        if (f) await onAddAttachment(f, guessKind(f.name));
                       }}
                     />
-                    <span className="hint">PDF, JPG lub PNG, do 10 MB, najwyżej 10 załączników.</span>
+                    <span className="hint">PDF, JPG lub PNG, do 10 MB.</span>
                   </div>
                 )}
               </>
@@ -647,7 +650,12 @@ export default function Detail({
             ) : (
               <p className="hint">Z tym kandydatem nie ma jeszcze korespondencji.</p>
             )}
-            {edit && !anon && (
+            {edit && !anon && !composing && (
+              <div className="status-actions">
+                <button className="btn small" type="button" onClick={() => setComposing(true)}>Napisz wiadomość</button>
+              </div>
+            )}
+            {edit && !anon && composing && (
               <form
                 className="fb-form"
                 onSubmit={async (e) => {
@@ -655,10 +663,10 @@ export default function Detail({
                   if (await onSendCustom(mailSubject, mailBody)) {
                     setMailSubject('');
                     setMailBody('');
+                    setComposing(false);
                   }
                 }}
               >
-                <h3>Nowa wiadomość do kandydata</h3>
                 {c.email ? (
                   <>
                     <p className="hint">Wszystkie wiadomości wychodzą ze skrzynki {mailbox}, niezależnie od tego, kto je wysyła. Odpowiedź kandydata trafia do tego profilu.</p>
@@ -670,9 +678,12 @@ export default function Detail({
                       <label htmlFor="mail-body">Treść</label>
                       <textarea id="mail-body" rows={6} value={mailBody} maxLength={10000} onChange={(e) => setMailBody(e.target.value)} />
                     </div>
-                    <button className="btn small primary" type="submit" disabled={!mailSubject.trim() || !mailBody.trim()}>
-                      Wyślij
-                    </button>
+                    <div className="inline-row">
+                      <button className="btn small primary" type="submit" disabled={!mailSubject.trim() || !mailBody.trim()}>
+                        Wyślij
+                      </button>
+                      <button className="btn small" type="button" onClick={() => setComposing(false)}>Anuluj</button>
+                    </div>
                   </>
                 ) : (
                   <p className="hint">Brak adresu e-mail kandydata.</p>
@@ -686,6 +697,10 @@ export default function Detail({
           <>
             <section className="sec">
               <h3>Historia zgłoszenia</h3>
+              {!histFilterOpen && c.events.length > 5 && (
+                <button className="btn small" type="button" onClick={() => setHistFilterOpen(true)}>Filtruj</button>
+              )}
+              {histFilterOpen && (
               <div className="chips" role="group" aria-label="Filtr historii">
                 {[{ id: 'all' as const, label: 'Wszystko' }, ...EVENT_KINDS.filter((k) => c.events.some((ev) => ev.kind === k.id))].map((k) => (
                   <button key={k.id} className={`btn small${histFilter === k.id ? ' primary' : ''}`} type="button" aria-pressed={histFilter === k.id} onClick={() => setHistFilter(k.id)}>
@@ -694,6 +709,7 @@ export default function Detail({
                   </button>
                 ))}
               </div>
+              )}
               <ol className="timeline">
                 {[...c.events]
                   .filter((ev) => histFilter === 'all' || ev.kind === histFilter)
