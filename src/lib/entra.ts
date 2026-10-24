@@ -1,5 +1,7 @@
 import { createHash, createPublicKey, randomBytes, verify as cryptoVerify } from 'node:crypto';
-import { CITIES, type Role } from './domain';
+import { CITIES, type Role, type RoleDef } from './domain';
+import { getRoles, roleRank } from './roles';
+import { getSystemConfig } from './system-config';
 
 /**
  * Sign-in with Microsoft Entra ID (OpenID Connect, authorization code flow with PKCE), no extra libraries.
@@ -23,9 +25,10 @@ export type EntraConfig = {
 };
 
 export function entraConfig(): EntraConfig | null {
-  const tenant = process.env.ENTRA_TENANT_ID;
-  const clientId = process.env.ENTRA_CLIENT_ID;
-  const clientSecret = process.env.ENTRA_CLIENT_SECRET;
+  const sys = getSystemConfig();
+  const tenant = sys.entraTenant;
+  const clientId = sys.entraClient;
+  const clientSecret = sys.entraSecret;
   if (!tenant || !clientId || !clientSecret) return null;
   let roleMap: Record<string, string> = {};
   try {
@@ -39,7 +42,7 @@ export function entraConfig(): EntraConfig | null {
     clientId,
     clientSecret,
     authority: (process.env.ENTRA_AUTHORITY || `https://login.microsoftonline.com/${tenant}`).replace(/\/+$/, ''),
-    appUrl: process.env.APP_URL ? process.env.APP_URL.replace(/\/+$/, '') : null,
+    appUrl: sys.appUrl ? sys.appUrl.replace(/\/+$/, '') : null,
     roleMap,
   };
 }
@@ -145,36 +148,37 @@ export async function verifyIdToken(cfg: EntraConfig, token: string, nonce: stri
   return claims;
 }
 
-/** "SEKA.Admin", "SEKA.HR" and "SEKA.Branch.<city>" are understood without any configuration. */
+/**
+ * The role names of the app registration are understood without any configuration: each role has an Entra name
+ * ("SEKA.HR", "SEKA.Admin", ...), and a branch role has that name followed by the city ("SEKA.Branch.Kraków").
+ */
 function defaultRole(value: string): string | null {
-  if (value === 'SEKA.Admin') return 'admin';
-  if (value === 'SEKA.HR') return 'hr';
-  const m = value.match(/^SEKA\.Branch\.(.+)$/);
-  return m ? `manager:${m[1]}` : null;
-}
-
-function parseRole(text: string): { role: Role; city: string | null } | null {
-  const v = text.trim();
-  if (v.toLowerCase() === 'admin') return { role: 'admin', city: null };
-  if (v.toLowerCase() === 'hr') return { role: 'hr', city: null };
-  const m = v.match(/^manager:(.+)$/i);
-  if (m) {
-    const city = CITIES.find((c) => c.toLowerCase() === m[1].trim().toLowerCase());
-    return city ? { role: 'manager', city } : null;
+  for (const r of getRoles()) {
+    if (r.scope === 'all' && value === r.entraRole) return r.id;
+    if (r.scope === 'city' && value.startsWith(r.entraRole + '.')) return `${r.id}:${value.slice(r.entraRole.length + 1)}`;
   }
   return null;
 }
 
-const RANK: Record<Role, number> = { manager: 1, hr: 2, admin: 3 };
+/** "hr", "admin", "manager:Kraków": a role id, followed by the city for a branch role. */
+function parseRole(text: string): { role: Role; city: string | null; def: RoleDef } | null {
+  const m = text.trim().match(/^([^:]+?)(?::(.+))?$/);
+  if (!m) return null;
+  const def = getRoles().find((r) => r.id.toLowerCase() === m[1].trim().toLowerCase());
+  if (!def) return null;
+  if (def.scope === 'all') return { role: def.id, city: null, def };
+  const city = m[2] ? CITIES.find((c) => c.toLowerCase() === m[2].trim().toLowerCase()) : undefined;
+  return city ? { role: def.id, city, def } : null;
+}
 
 /** The session for a signed-in user, or null when their roles / groups give no access to this system. */
 export function sessionFromClaims(cfg: EntraConfig, claims: Claims) {
   const values = [...(Array.isArray(claims.roles) ? claims.roles : []), ...(Array.isArray(claims.groups) ? claims.groups : [])].map(String);
-  let best: { role: Role; city: string | null } | null = null;
+  let best: { role: Role; city: string | null; def: RoleDef } | null = null;
   for (const v of values) {
     const mapped = Object.prototype.hasOwnProperty.call(cfg.roleMap, v) ? String(cfg.roleMap[v]) : defaultRole(v);
     const r = mapped ? parseRole(mapped) : null;
-    if (r && (!best || RANK[r.role] > RANK[best.role])) best = r;
+    if (r && (!best || roleRank(r.def) > roleRank(best.def))) best = r;
   }
   if (!best) return null;
   const email = claims.email || claims.preferred_username || claims.upn || '';

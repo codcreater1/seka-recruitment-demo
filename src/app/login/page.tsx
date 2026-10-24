@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import LoginForm from '@/components/LoginForm';
-import { DEMO_ACCOUNTS, authMode, getSession } from '@/lib/auth';
-import { ROLE_LABEL } from '@/lib/domain';
+import { authMode, demoAccounts, getSession } from '@/lib/auth';
+import { getRole } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Logowanie · Panel rekrutacji' };
@@ -12,7 +12,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const mode = authMode();
   const accounts =
     mode === 'demo'
-      ? DEMO_ACCOUNTS.map((a) => ({ id: a.id, name: a.name, email: a.email, role: a.role, roleLabel: ROLE_LABEL[a.role], city: a.city }))
+      ? demoAccounts().map((a) => ({ id: a.id, name: a.name, email: a.email, role: a.role, roleLabel: getRole(a.role)?.label ?? a.role, city: a.city }))
       : [];
   return <LoginForm mode={mode} error={error ?? ''} accounts={accounts} />;
 }

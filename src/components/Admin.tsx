@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { EMAIL_TEMPLATE_IDS, STATUS_KINDS, renderTemplate, setStatusList, type EmailTemplate, type Role, type StatusDef, type StatusKind } from '@/lib/domain';
+import { EMAIL_TEMPLATE_IDS, STATUS_KINDS, renderTemplate, setStatusList, type EmailTemplate, type PermissionId, type Role, type RoleDef, type StatusDef, type StatusKind } from '@/lib/domain';
 import { api } from './ui';
+import SystemSettings from './SystemSettings';
 
 type TemplateInfo = {
   id: EmailTemplate;
@@ -22,14 +23,15 @@ type NotifyForm = {
   managerEmails: Record<string, string>;
   teamsWebhook: string;
 };
+type RoleRow = { id?: string; label: string; scope: 'all' | 'city'; permissions: PermissionId[]; entraRole: string; builtin: boolean };
 type StatusRow = { id?: string; label: string; kind: StatusKind; builtin: boolean; used: number };
 type AdminData = {
   statuses: (StatusDef & { used: number })[];
   settings: { autoAck: boolean; autoMissing: boolean; retentionMonths: number; poolRetentionMonths: number; notify: NotifyForm };
   templates: TemplateInfo[];
   directory: { id: string; name: string; email: string; role: Role; roleLabel: string; city: string | null; entraRole: string }[];
-  roles: { label: string; scope: string }[];
-  permissions: { what: string; admin: boolean; hr: boolean; manager: string }[];
+  roles: RoleDef[];
+  permissionCatalog: { id: PermissionId; label: string }[];
   integrations: {
     authMode: 'demo' | 'entra';
     ingestEnabled: boolean;
@@ -42,7 +44,7 @@ type AdminData = {
 
 const SAMPLE = { position: 'Technik laboratoryjny', interviewAt: '2026-10-21T09:00', missing: ['cv', 'city'] as ('cv' | 'city')[] };
 
-export default function Admin({ onSaved, onRetentionChanged, onStatusesChanged }: { onSaved: (msg: string) => void; onRetentionChanged: () => void; onStatusesChanged: () => void }) {
+export default function Admin({ canSystem, onSaved, onRetentionChanged, onStatusesChanged }: { canSystem: boolean; onSaved: (msg: string) => void; onRetentionChanged: () => void; onStatusesChanged: () => void }) {
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState('');
   const [tpl, setTpl] = useState<EmailTemplate>('missing');
@@ -53,12 +55,14 @@ export default function Admin({ onSaved, onRetentionChanged, onStatusesChanged }
   const [nf, setNf] = useState<NotifyForm>({ enabled: false, onNew: true, onInterview: true, hrEmails: [], managerEmails: {}, teamsWebhook: '' });
   const [hrText, setHrText] = useState('');
   const [rows, setRows] = useState<StatusRow[]>([]);
+  const [roleRows, setRoleRows] = useState<RoleRow[]>([]);
 
   const load = useCallback(async () => {
     const d = await api<AdminData>('/api/admin/settings');
     setData(d);
     setMonths({ retention: d.settings.retentionMonths, pool: d.settings.poolRetentionMonths });
     setRows(d.statuses.map((s) => ({ id: s.id, label: s.label, kind: s.kind, builtin: s.builtin, used: s.used })));
+    setRoleRows(d.roles.map((r) => ({ id: r.id, label: r.label, scope: r.scope, permissions: r.permissions, entraRole: r.entraRole, builtin: r.builtin })));
     setNf(d.settings.notify);
     setHrText(d.settings.notify.hrEmails.join('\n'));
     return d;
@@ -108,37 +112,93 @@ export default function Admin({ onSaved, onRetentionChanged, onStatusesChanged }
       <section className="panel">
         <h2>Role i uprawnienia</h2>
         <p className="hint">
-          Trzy role. Uprawnienia są sprawdzane na serwerze przy każdej operacji, niezależnie od tego, co widać w interfejsie.
+          Uprawnienia są sprawdzane na serwerze przy każdej operacji, niezależnie od tego, co widać w interfejsie. Każdy zalogowany widzi zgłoszenia ze
+          swojego zakresu; poniżej wybiera się, co może dodatkowo. Rola o zakresie „jeden oddział” widzi tylko swoje miasto. Można dodać własne role
+          (na przykład asystenta kierownika). Uprawnienie do ustawień systemowych nadaje tylko administrator systemu.
         </p>
-        <div className="table-wrap" role="region" aria-label="Macierz uprawnień" tabIndex={0}>
+        <div className="table-wrap" role="region" aria-label="Role i uprawnienia" tabIndex={0}>
           <table className="audit matrix">
             <thead>
               <tr>
-                <th>Możliwość</th>
-                <th>Administrator</th>
-                <th>HR manager</th>
-                <th>Kierownik oddziału</th>
+                <th>Rola</th>
+                <th>Zakres</th>
+                {data.permissionCatalog.map((p) => (
+                  <th key={p.id} title={p.label}>{p.label.split(':')[0]}</th>
+                ))}
+                <th>Rola w Entra ID</th>
+                <th />
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td>Zakres danych</td>
-                {data.roles.map((r) => (
-                  <td key={r.label}>{r.scope}</td>
-                ))}
-              </tr>
-              {data.permissions.map((p) => (
-                <tr key={p.what}>
-                  <td>{p.what}</td>
-                  <td>{p.admin ? 'Tak' : '—'}</td>
-                  <td>{p.hr ? 'Tak' : '—'}</td>
-                  <td>{p.manager}</td>
-                </tr>
-              ))}
+              {roleRows.map((r, i) => {
+                const fixed = r.id === 'sysadmin';
+                return (
+                  <tr key={r.id ?? `new-${i}`}>
+                    <td>
+                      <input aria-label={`Nazwa roli ${i + 1}`} value={r.label} maxLength={40} onChange={(e) => setRoleRows(roleRows.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+                    </td>
+                    <td>
+                      {r.builtin ? (
+                        r.scope === 'city' ? 'Jeden oddział' : 'Cała firma'
+                      ) : (
+                        <select aria-label={`Zakres roli ${i + 1}`} value={r.scope} onChange={(e) => setRoleRows(roleRows.map((x, j) => (j === i ? { ...x, scope: e.target.value as 'all' | 'city' } : x)))}>
+                          <option value="all">Cała firma</option>
+                          <option value="city">Jeden oddział</option>
+                        </select>
+                      )}
+                    </td>
+                    {data.permissionCatalog.map((p) => (
+                      <td key={p.id}>
+                        <input
+                          type="checkbox"
+                          aria-label={`${r.label}: ${p.label}`}
+                          checked={r.permissions.includes(p.id)}
+                          disabled={fixed || (p.id === 'settings.system' && !canSystem)}
+                          onChange={(e) =>
+                            setRoleRows(roleRows.map((x, j) => (j === i ? { ...x, permissions: e.target.checked ? [...x.permissions, p.id] : x.permissions.filter((q) => q !== p.id) } : x)))
+                          }
+                        />
+                      </td>
+                    ))}
+                    <td>
+                      <input className="mono" aria-label={`Rola Entra ID ${i + 1}`} value={r.entraRole} maxLength={60} onChange={(e) => setRoleRows(roleRows.map((x, j) => (j === i ? { ...x, entraRole: e.target.value } : x)))} />
+                      {r.scope === 'city' && <small className="hint"> + .Miasto</small>}
+                    </td>
+                    <td>
+                      {!r.builtin && (
+                        <button className="btn small danger" type="button" onClick={() => setRoleRows(roleRows.filter((_, j) => j !== i))}>
+                          Usuń
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+        <div className="inline-row">
+          <button
+            className="btn small"
+            type="button"
+            onClick={() => setRoleRows([...roleRows, { label: '', scope: 'all', permissions: ['comment'], entraRole: '', builtin: false }])}
+          >
+            Dodaj rolę
+          </button>
+          <button
+            className="btn small primary"
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              save({ roles: roleRows.map((r) => ({ id: r.id, label: r.label, scope: r.scope, permissions: r.permissions, entraRole: r.entraRole })) }, 'Role zapisane')
+            }
+          >
+            Zapisz role
+          </button>
+        </div>
       </section>
+
+      {canSystem && <SystemSettings onSaved={onSaved} />}
 
       <section className="panel">
         <h2>Konta i logowanie</h2>

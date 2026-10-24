@@ -2,6 +2,7 @@ import { audit } from './db';
 import { CITIES } from './domain';
 import { deliver, smtpConfigured } from './mailer';
 import { getSettings } from './settings';
+import { getSystemConfig } from './system-config';
 
 export type NotifyEvent = 'new' | 'interview';
 
@@ -23,7 +24,7 @@ export function isTeamsWebhook(value: string): boolean {
 export const isEmail = (v: string) => /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(v);
 
 const link = (id: string) => {
-  const base = process.env.APP_URL ? process.env.APP_URL.replace(/\/+$/, '') : '';
+  const base = getSystemConfig().appUrl.replace(/\/+$/, '');
   return base ? `${base}/#/lista/${id}` : '';
 };
 

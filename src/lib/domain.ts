@@ -162,22 +162,55 @@ export const norm = (s: string) =>
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '');
 
-/** admin: everything and the settings; hr: the whole company; manager: one branch (read, comment, opinions). */
-export type Role = 'admin' | 'hr' | 'manager';
-export const ROLE_LABEL: Record<Role, string> = { admin: 'Administrator', hr: 'HR manager', manager: 'Kierownik oddziału' };
+/** Id of a role. The roles themselves (name, scope, permissions) are data the administrator can change. */
+export type Role = string;
+
+/** Everyone who signs in can see the applications in their scope; these are the things that can be switched on top of that. */
+export const PERMISSIONS = [
+  { id: 'comment', label: 'Komentarze i opinie po rozmowie' },
+  { id: 'edit', label: 'Praca z kandydatami: zmiany danych i statusów, korespondencja, nowe zgłoszenia, ogłoszenia, eksport, usuwanie (RODO)' },
+  { id: 'settings.admin', label: 'Administracja: role, statusy, uprawnienia, treść wiadomości, okresy przechowywania, powiadomienia' },
+  { id: 'settings.system', label: 'Ustawienia systemowe: klucze API, Azure / Entra ID, serwer pocztowy i skrzynka, przywracanie danych demo' },
+] as const;
+export type PermissionId = (typeof PERMISSIONS)[number]['id'];
+export const isPermission = (v: unknown): v is PermissionId => PERMISSIONS.some((p) => p.id === v);
+
+export type RoleScope = 'all' | 'city';
+export type RoleDef = {
+  id: Role;
+  label: string;
+  /** "all": every city; "city": one branch, chosen per user (Entra: <entraRole>.<city>). */
+  scope: RoleScope;
+  permissions: PermissionId[];
+  /** Name of the Entra ID app role (for a branch role: its prefix, followed by .<city>). */
+  entraRole: string;
+  builtin: boolean;
+};
+export const DEFAULT_ROLES: RoleDef[] = [
+  { id: 'sysadmin', label: 'Administrator systemu', scope: 'all', permissions: ['comment', 'edit', 'settings.admin', 'settings.system'], entraRole: 'SEKA.SystemAdmin', builtin: true },
+  { id: 'admin', label: 'Administrator', scope: 'all', permissions: ['comment', 'edit', 'settings.admin'], entraRole: 'SEKA.Admin', builtin: true },
+  { id: 'hr', label: 'HR manager', scope: 'all', permissions: ['comment', 'edit'], entraRole: 'SEKA.HR', builtin: true },
+  { id: 'manager', label: 'Kierownik oddziału', scope: 'city', permissions: ['comment'], entraRole: 'SEKA.Branch', builtin: true },
+];
 
 export type Session = {
   /** Account id: "admin", "hr", "mgr:Kraków" in the demo; "entra:<object id>" with Microsoft Entra ID. */
   id: string;
   role: Role;
+  roleLabel: string;
   /** Branch the user is limited to; null means all cities. */
   city: string | null;
   name: string;
   email: string;
-  /** May change candidate data and run bulk actions (admin, hr). */
+  permissions: PermissionId[];
+  /** May add comments and opinions (permission "comment", also given by "edit"). */
+  canComment: boolean;
+  /** May change candidate data and run bulk actions (permission "edit"). */
   canEdit: boolean;
-  /** May change the system settings (admin only). */
+  /** May change roles, statuses, messages and the other business settings (permission "settings.admin"). */
   canConfigure: boolean;
+  /** May change the technical settings: API keys, Azure / Entra ID, mail server, demo reset (permission "settings.system"). */
+  canSystem: boolean;
 };
 
 export type NoteDto = { id: number; author: string; text: string; createdAt: string };

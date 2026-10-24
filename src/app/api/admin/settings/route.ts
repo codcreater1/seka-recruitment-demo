@@ -1,6 +1,7 @@
-import { DEMO_ACCOUNTS, authMode, badRequest, json, requireAdmin } from '@/lib/auth';
+import { authMode, badRequest, demoAccounts, json, requireAdmin } from '@/lib/auth';
 import { audit, POOL_RETENTION_MONTHS, RETENTION_MONTHS } from '@/lib/db';
-import { CITIES, DEFAULT_TEMPLATES, EMAIL_TEMPLATE_IDS, POSITIONS, ROLE_LABEL, statusList, type EmailTemplate } from '@/lib/domain';
+import { CITIES, DEFAULT_TEMPLATES, EMAIL_TEMPLATE_IDS, PERMISSIONS, POSITIONS, statusList, type EmailTemplate } from '@/lib/domain';
+import { getRole, getRoles, saveRoles, type RoleInput } from '@/lib/roles';
 import { smtpConfigured } from '@/lib/mailer';
 import { isEmail, isTeamsWebhook } from '@/lib/notify';
 import { saveStatuses, statusUsage } from '@/lib/statuses';
@@ -9,20 +10,6 @@ import { APP_TIMEZONE } from '@/lib/time';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-/** Who may do what. Shown to the administrator; the real checks are in the API routes. */
-const PERMISSIONS = [
-  { what: 'Podgląd zgłoszeń i dokumentów CV', admin: true, hr: true, manager: 'Tak (swoje miasto)' },
-  { what: 'Komentarze i opinie po rozmowie', admin: true, hr: true, manager: 'Tak' },
-  { what: 'Zmiana statusów, danych, ocen i terminów rozmów', admin: true, hr: true, manager: '—' },
-  { what: 'Dodawanie zgłoszeń i dołączanie CV', admin: true, hr: true, manager: '—' },
-  { what: 'Wysyłanie wiadomości do kandydatów', admin: true, hr: true, manager: '—' },
-  { what: 'Ogłoszenia: dodawanie i zamykanie', admin: true, hr: true, manager: 'Tylko podgląd' },
-  { what: 'Eksport (CSV, JSON) i dziennik zdarzeń', admin: true, hr: true, manager: '—' },
-  { what: 'Usuwanie profili i operacje zbiorcze (RODO)', admin: true, hr: true, manager: '—' },
-  { what: 'Ustawienia systemu: wiadomości, okresy przechowywania, role', admin: true, hr: false, manager: '—' },
-  { what: 'Przywracanie danych demonstracyjnych', admin: true, hr: false, manager: '—' },
-];
 
 /** Placeholders a message cannot work without. */
 const REQUIRED: Partial<Record<EmailTemplate, string>> = { missing: '{{missingList}}', invite: '{{when}}' };
@@ -54,15 +41,11 @@ export async function GET() {
         customized: !!own,
       };
     }),
-    directory: DEMO_ACCOUNTS.map((a) => ({
-      id: a.id, name: a.name, email: a.email, role: a.role, roleLabel: ROLE_LABEL[a.role], city: a.city, entraRole: a.entraRole,
+    directory: demoAccounts().map((a) => ({
+      id: a.id, name: a.name, email: a.email, role: a.role, roleLabel: getRole(a.role)?.label ?? a.role, city: a.city, entraRole: a.entraRole,
     })),
-    roles: [
-      { label: ROLE_LABEL.admin, scope: 'Wszystkie miasta' },
-      { label: ROLE_LABEL.hr, scope: 'Wszystkie miasta' },
-      { label: ROLE_LABEL.manager, scope: 'Tylko własne miasto' },
-    ],
-    permissions: PERMISSIONS,
+    roles: getRoles(),
+    permissionCatalog: PERMISSIONS,
     integrations: {
       authMode: authMode(),
       ingestEnabled: !!process.env.INGEST_API_KEY,
@@ -141,6 +124,10 @@ export async function PUT(req: Request) {
       if (need && !text.includes(need)) return badRequest(`Treść tej wiadomości musi zawierać znacznik ${need}.`);
       patch.templates[id as EmailTemplate] = { subject, body: text };
     }
+  }
+  if ('roles' in body) {
+    const saved = saveRoles(body.roles as RoleInput[], session);
+    if ('error' in saved) return badRequest(saved.error);
   }
   if ('statuses' in body) {
     const saved = saveStatuses(body.statuses as { id?: string; label: string; kind: string }[], session.name);

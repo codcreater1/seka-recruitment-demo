@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CITIES,
-  ROLE_LABEL,
   statusKind,
   statusList,
   setStatusList,
@@ -36,7 +35,8 @@ type ModalKind = 'new' | 'issues' | 'audit' | 'guide' | null;
 type View = 'list' | 'board' | 'calendar' | 'vacancies' | 'summary' | 'admin';
 
 const WEEK = 7 * 864e5;
-const ROLE_INITIALS = { admin: 'AD', hr: 'HR', manager: 'KO' } as const;
+/** Two letters for the round badge: the first letters of the role name. */
+const roleInitials = (label: string) => label.split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || '··';
 const QUICK_LABEL: Record<Exclude<QuickFilter, null>, string> = {
   review: 'Do sprawdzenia',
   missing: 'Brakujące dane',
@@ -774,7 +774,7 @@ export default function App() {
                 aria-label={`${session?.name ?? 'Użytkownik'}: widok i ustawienia`}
                 onClick={() => setSettingsOpen((o) => !o)}
               >
-                <span className="avatar sm" aria-hidden="true">{session ? ROLE_INITIALS[session.role] : '…'}</span>
+                <span className="avatar sm" aria-hidden="true">{session ? roleInitials(session.roleLabel) : '…'}</span>
                 <span className="user-text">
                   <strong>{session?.name ?? 'Wczytywanie…'}</strong>
                   <small>Widok i ustawienia</small>
@@ -787,7 +787,7 @@ export default function App() {
                     <span className="side-label">Zalogowano jako</span>
                     <div className="whoami">
                       <strong>{session?.name}</strong>
-                      <small>{session?.email} · {session ? ROLE_LABEL[session.role] : ''}</small>
+                      <small>{session?.email} · {session?.roleLabel ?? ''}</small>
                     </div>
                     {authMode === 'demo' && roles.length > 0 && (
                       <>
@@ -1060,6 +1060,7 @@ export default function App() {
 
           {view === 'admin' && canConfigure && (
             <Admin
+              canSystem={!!session?.canSystem}
               onSaved={say}
               onRetentionChanged={() => {
                 void reloadAll();
@@ -1083,7 +1084,7 @@ export default function App() {
       {modal === 'new' && <NewModal onClose={() => setModal(null)} onCreated={onCreated} />}
       {modal === 'issues' && <IssuesModal onClose={() => setModal(null)} />}
       {modal === 'audit' && <AuditModal onClose={() => setModal(null)} />}
-      {modal === 'guide' && <GuideModal steps={guideSteps} canReset={session?.role === 'admin'} onClose={() => setModal(null)} onReset={resetDemo} />}
+      {modal === 'guide' && <GuideModal steps={guideSteps} canReset={!!session?.canSystem} onClose={() => setModal(null)} onReset={resetDemo} />}
       <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite">{toast}</div>
     </div>
   );

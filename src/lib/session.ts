@@ -38,6 +38,11 @@ function getSecret(): Buffer {
   return secret;
 }
 
+/** A key for one purpose, derived from the session secret, so stored secrets are encrypted with something that is not kept in the database. */
+export function deriveKey(purpose: string): Buffer {
+  return createHmac('sha256', getSecret()).update('seka:' + purpose).digest();
+}
+
 const b64 = (buf: Buffer | string) => Buffer.from(buf).toString('base64url');
 
 function sign(data: string) {
@@ -62,7 +67,7 @@ export function openSession(value: string | undefined, now = Date.now()): Payloa
   try {
     const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Payload;
     if (typeof p.exp !== 'number' || p.exp * 1000 < now) return null;
-    if (p.role !== 'admin' && p.role !== 'hr' && p.role !== 'manager') return null;
+    if (typeof p.role !== 'string' || !p.role) return null;
     if (typeof p.id !== 'string' || typeof p.name !== 'string') return null;
     return p;
   } catch {

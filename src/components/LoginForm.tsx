@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { api } from './ui';
 
-type Account = { id: string; name: string; email: string; role: 'admin' | 'hr' | 'manager'; roleLabel: string; city: string | null };
+type Account = { id: string; name: string; email: string; role: string; roleLabel: string; city: string | null };
 
 const ERRORS: Record<string, string> = {
   denied: 'To konto nie ma dostępu do systemu rekrutacji. Skontaktuj się z administratorem.',
@@ -90,7 +90,7 @@ export default function LoginForm({ mode, error, accounts }: { mode: 'demo' | 'e
                       <strong>{a.role === 'manager' ? a.roleLabel : a.name}</strong>
                       <small>{a.email}</small>
                     </span>
-                    <span className={`badge ${a.role === 'admin' ? 'bad' : a.role === 'hr' ? 'info' : ''}`}>{a.city ?? a.roleLabel}</span>
+                    <span className={`badge ${a.role === 'admin' || a.role === 'sysadmin' ? 'bad' : a.role === 'hr' ? 'info' : ''}`}>{a.city ?? a.roleLabel}</span>
                   </button>
                 </li>
               ))}

@@ -13,7 +13,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEY = 'test-ingest-key';
 let MANAGER; // branch manager of Kraków
 let HR; // HR manager (the default for every call)
-let ADMIN;
+let ADMIN; // administrator (roles, statuses, messages)
+let SYSADMIN; // system administrator (API keys, mail server, Entra ID, demo reset)
 let base = '';
 let server;
 let dataDir;
@@ -89,6 +90,7 @@ before(async () => {
   }
   HR = await login('hr');
   ADMIN = await login('admin');
+  SYSADMIN = await login('sysadmin');
   MANAGER = await login('mgr:Kraków');
 });
 
@@ -446,6 +448,87 @@ test('configurable statuses: admin only, kinds drive behaviour, used or built-in
   assert.equal((await list()).length, 6);
 });
 
+test('roles: the administrator defines roles, the system permission stays with the system administrator', async () => {
+  const put = send('PUT');
+  const roles = async () => (await call('/api/admin/settings', {}, ADMIN)).body.roles;
+  const base = (await roles()).map((r) => ({ id: r.id, label: r.label, scope: r.scope, permissions: r.permissions, entraRole: r.entraRole }));
+  assert.deepEqual(base.map((r) => r.id), ['sysadmin', 'admin', 'hr', 'manager']);
+  assert.equal((await put('/api/admin/settings', { roles: base }, HR)).status, 403);
+  assert.equal((await put('/api/admin/settings', { roles: base.slice(1) }, ADMIN)).status, 400, 'built-in roles stay');
+  assert.equal((await put('/api/admin/settings', { roles: base.map((r) => (r.id === 'admin' ? { ...r, permissions: ['edit'] } : r)) }, ADMIN)).status, 400, 'admin keeps the administration permission');
+  assert.equal((await put('/api/admin/settings', { roles: base.map((r) => (r.id === 'hr' ? { ...r, permissions: ['edit', 'settings.system'] } : r)) }, ADMIN)).status, 400, 'an administrator cannot hand out the system permission');
+  assert.equal((await put('/api/admin/settings', { roles: [...base, { label: 'X', scope: 'all', permissions: ['wymyslone'], entraRole: 'SEKA.X' }] }, ADMIN)).status, 400);
+  assert.equal((await put('/api/admin/settings', { roles: [...base, { label: 'Y', scope: 'all', permissions: [], entraRole: 'SEKA.HR' }] }, ADMIN)).status, 400, 'Entra names are unique');
+
+  // an assistant: one branch, may comment but not change anything
+  const assistant = { label: 'Asystent kierownika', scope: 'city', permissions: ['comment'], entraRole: 'SEKA.Assistant' };
+  assert.equal((await put('/api/admin/settings', { roles: [...base, assistant] }, ADMIN)).status, 200);
+  const added = (await roles()).find((r) => r.label === 'Asystent kierownika');
+  assert.ok(added && !added.builtin);
+  const accounts = (await call('/api/session', {}, ADMIN)).body.accounts;
+  const demo = accounts.find((a) => a.id === `role:${added.id}`);
+  assert.ok(demo, 'the demo offers an account for the new role');
+  const cookie = await login(demo.id);
+  const me = (await call('/api/session', {}, cookie)).body.session;
+  assert.equal(me.roleLabel, 'Asystent kierownika');
+  assert.equal(me.canEdit, false);
+  assert.equal(me.canComment, true);
+  assert.equal(me.canConfigure, false);
+  const visible = await candidates(cookie);
+  assert.ok(visible.length > 0 && visible.every((c) => c.city === me.city), 'limited to one branch');
+  assert.equal((await post(`/api/candidates/${visible[0].id}/notes`, { text: 'Uwaga asystenta' }, cookie)).status, 201);
+  assert.equal((await patch(`/api/candidates/${visible[0].id}`, { rating: 3 }, cookie)).status, 403);
+  assert.equal((await call('/api/admin/settings', {}, cookie)).status, 403);
+  // without the comment permission the same role may only look
+  const readOnly = [...base, { ...assistant, id: added.id, permissions: [] }];
+  assert.equal((await put('/api/admin/settings', { roles: readOnly }, ADMIN)).status, 200);
+  assert.equal((await post(`/api/candidates/${visible[0].id}/notes`, { text: 'Jeszcze raz' }, cookie)).status, 403);
+  // Entra names: the prefix plus the city is understood without further setup
+  // removing the role ends the sessions that used it
+  assert.equal((await put('/api/admin/settings', { roles: base }, ADMIN)).status, 200);
+  assert.equal((await call('/api/session', {}, cookie)).status, 401);
+  assert.equal((await roles()).length, 4);
+});
+
+test('system settings: system administrator only, secrets are encrypted and never sent back', async () => {
+  const put = send('PUT');
+  for (const [cookie, status] of [[null, 401], [HR, 403], [MANAGER, 403], [ADMIN, 403], [SYSADMIN, 200]]) {
+    assert.equal((await call('/api/admin/system', {}, cookie)).status, status, 'GET for ' + status);
+  }
+  assert.equal((await put('/api/admin/system', { smtpHost: 'x' }, ADMIN)).status, 403);
+  const before = (await call('/api/admin/system', {}, SYSADMIN)).body;
+  assert.equal(before.values.mailbox, 'kariera@seka.pl', 'the company mailbox is the default sender');
+  assert.equal(before.secrets.aiKey.set, false);
+  assert.equal((await put('/api/admin/system', { mailbox: 'nie-adres' }, SYSADMIN)).status, 400);
+  assert.equal((await put('/api/admin/system', { smtpPort: 99999 }, SYSADMIN)).status, 400);
+
+  const secret = 'tajny-klucz-api-424242';
+  const saved = await put('/api/admin/system', { aiProvider: 'Anthropic', aiKey: secret, smtpPass: 'haslo-smtp-737373' }, SYSADMIN);
+  assert.equal(saved.status, 200);
+  assert.ok(!saved.raw.includes(secret) && !saved.raw.includes('haslo-smtp-737373'), 'the answer carries no secret');
+  const after = (await call('/api/admin/system', {}, SYSADMIN)).body;
+  assert.equal(after.secrets.aiKey.set, true);
+  assert.equal(after.secrets.aiKey.hint, '••••242');
+  assert.equal(after.values.aiProvider, 'Anthropic');
+  const log = (await call('/api/audit')).body.entries.find((e) => e.action === 'system-config-update');
+  assert.ok(log && !log.detail.includes(secret), 'the log names the fields, not the values');
+  // nothing readable on disk
+  const files = [];
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).forEach((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : files.push(path.join(d, e.name))));
+  walk(dataDir);
+  for (const f of files) {
+    const bytes = fs.readFileSync(f);
+    assert.equal(bytes.includes(secret), false, 'plain secret in ' + path.basename(f));
+  }
+  // an empty field keeps the secret, "clear" removes it
+  assert.equal((await put('/api/admin/system', { aiProvider: 'Anthropic', aiKey: '' }, SYSADMIN)).status, 200);
+  assert.equal((await call('/api/admin/system', {}, SYSADMIN)).body.secrets.aiKey.set, true);
+  assert.equal((await put('/api/admin/system', { clear: ['aiKey', 'smtpPass'], aiProvider: '' }, SYSADMIN)).status, 200);
+  const cleared = (await call('/api/admin/system', {}, SYSADMIN)).body;
+  assert.equal(cleared.secrets.aiKey.set, false);
+  assert.equal(cleared.secrets.smtpPass.set, false);
+});
+
 test('every seeded CV is read back correctly', async () => {
   const seed = JSON.parse(fs.readFileSync(path.join(root, 'seed', 'seed.json'), 'utf8'));
   const failures = [];
@@ -744,7 +827,8 @@ test('administration: only the administrator reads or changes the settings', asy
   assert.equal(cfg.settings.retentionMonths, 6);
   assert.deepEqual(cfg.templates.map((t) => t.id).sort(), ['ack', 'invite', 'missing', 'rejection']);
   assert.ok(cfg.templates.every((t) => t.subject && t.body && !t.customized));
-  assert.ok(cfg.permissions.length >= 8);
+  assert.equal(cfg.permissionCatalog.length, 4);
+  assert.equal(cfg.roles.length, 4);
   assert.equal(cfg.directory.filter((a) => a.role === 'manager').length, 6);
   assert.ok(cfg.directory.every((a) => a.entraRole.startsWith('SEKA.')));
   assert.equal(cfg.integrations.authMode, 'demo');
@@ -850,6 +934,11 @@ test('three roles: administrator, HR manager, branch manager', async () => {
   assert.equal(admin.session.role, 'admin');
   assert.equal(admin.session.canEdit, true);
   assert.equal(admin.session.canConfigure, true);
+  assert.equal(admin.session.canSystem, false);
+  const sys = await me(SYSADMIN);
+  assert.equal(sys.session.role, 'sysadmin');
+  assert.equal(sys.session.canSystem, true);
+  assert.equal(sys.session.canConfigure, true);
   const hr = await me(HR);
   assert.equal(hr.session.role, 'hr');
   assert.equal(hr.session.canEdit, true);
@@ -893,7 +982,8 @@ test('GDPR: export and delete a profile, audit log, demo reset', async () => {
   for (const a of ['export', 'delete', 'bulk-delete-expired', 'bulk-reject']) assert.ok(audit.includes(a), a);
   const stranger = await ingest({ from: 'Ktos Do Usuniecia <ktos.do.usuniecia@example.com>', subject: 'Aplikacja – Księgowy (Poznań)' });
   assert.equal((await call('/api/candidates/' + stranger.body.id)).status, 200);
-  const reset = await post('/api/demo/reset', {}, ADMIN);
+  assert.equal((await post('/api/demo/reset', {}, ADMIN)).status, 403, 'the administrator cannot reset the demo');
+  const reset = await post('/api/demo/reset', {}, SYSADMIN);
   assert.equal(reset.status, 200);
   assert.equal((await candidates()).length, 22);
   assert.ok((await candidates()).every((c) => c.id.startsWith('seed-')), 'only the demo set is left');

@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_STATUSES, setStatusList, type StatusDef, MISSING_SHORT, UNASSIGNED_CITY, UNKNOWN_POSITION, renderTemplate, statusLabel, type EmailTemplate, type MissingItem, type StatusId } from './domain';
+import { DEFAULT_ROLES, DEFAULT_STATUSES, setStatusList, type StatusDef, MISSING_SHORT, UNASSIGNED_CITY, UNKNOWN_POSITION, renderTemplate, statusLabel, type EmailTemplate, type MissingItem, type StatusId } from './domain';
 import { localDate } from './time';
 
 /** A positive whole number from the environment; a typo in a setting must not break the app. */
@@ -107,6 +107,15 @@ CREATE TABLE IF NOT EXISTS attachments (
   added_by TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_candidate ON attachments(candidate_id);
+CREATE TABLE IF NOT EXISTS roles (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  permissions TEXT NOT NULL,
+  entra_role TEXT NOT NULL,
+  builtin INTEGER NOT NULL DEFAULT 0,
+  position INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS statuses (
   id TEXT PRIMARY KEY,
   label TEXT NOT NULL,
@@ -139,6 +148,9 @@ export function refreshStatuses(db: Database.Database = getDb()): StatusDef[] {
 }
 
 function migrate(db: Database.Database) {
+  // built-in roles are always present (added on upgrade); the administrator's edits to them are kept
+  const insRole = db.prepare('INSERT OR IGNORE INTO roles (id, label, scope, permissions, entra_role, builtin, position) VALUES (?, ?, ?, ?, ?, 1, ?)');
+  DEFAULT_ROLES.forEach((r, i) => insRole.run(r.id, r.label, r.scope, JSON.stringify(r.permissions), r.entraRole, i));
   if ((db.prepare('SELECT COUNT(*) AS n FROM statuses').get() as { n: number }).n === 0) {
     const ins = db.prepare('INSERT INTO statuses (id, label, kind, position, builtin) VALUES (?, ?, ?, ?, 1)');
     DEFAULT_STATUSES.forEach((s, i) => ins.run(s.id, s.label, s.kind, i));

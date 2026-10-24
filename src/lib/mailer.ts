@@ -3,20 +3,25 @@ import nodemailer, { type Transporter } from 'nodemailer';
 export type DeliveryResult = { status: 'sent' | 'simulated' | 'failed'; error: string };
 export type MailAttachment = { filename: string; content: string; contentType: string };
 
+import { getSystemConfig } from './system-config';
+
 let transport: Transporter | null = null;
+let transportKey = '';
 
 /** SMTP is optional. Without SMTP_HOST every message is only recorded ("simulated"). */
-export const smtpConfigured = () => !!process.env.SMTP_HOST;
+export const smtpConfigured = () => !!getSystemConfig().smtpHost;
 
 function getTransport() {
-  if (!transport) {
-    const user = process.env.SMTP_USER;
+  const c = getSystemConfig();
+  const key = JSON.stringify([c.smtpHost, c.smtpPort, c.smtpSecure, c.smtpUser, c.smtpPass]);
+  if (!transport || key !== transportKey) {
     transport = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: user ? { user, pass: process.env.SMTP_PASS || '' } : undefined,
+      host: c.smtpHost,
+      port: c.smtpPort,
+      secure: c.smtpSecure,
+      auth: c.smtpUser ? { user: c.smtpUser, pass: c.smtpPass } : undefined,
     });
+    transportKey = key;
   }
   return transport;
 }
@@ -26,7 +31,7 @@ export async function deliver(msg: { to: string; subject: string; text: string; 
   if (!msg.to || !msg.to.includes('@')) return { status: 'failed', error: 'Brak poprawnego adresu odbiorcy.' };
   try {
     await getTransport().sendMail({
-      from: process.env.SMTP_FROM || 'rekrutacja@localhost',
+      from: getSystemConfig().mailbox,
       to: msg.to,
       subject: msg.subject,
       text: msg.text,

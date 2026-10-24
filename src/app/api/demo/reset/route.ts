@@ -1,12 +1,12 @@
 import { audit, resetDemoData } from '@/lib/db';
-import { json, requireAdmin } from '@/lib/auth';
+import { json, requireSystem } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /** Demo only: wipe all data and load the sample candidates again. Disabled when SEED_DEMO_DATA=false. */
 export async function POST() {
-  const session = await requireAdmin('Przywracanie danych demonstracyjnych jest dostępne tylko dla administratora.');
+  const session = await requireSystem('Przywracanie danych demonstracyjnych jest dostępne tylko dla administratora systemu.');
   if (session instanceof Response) return session;
   if (process.env.SEED_DEMO_DATA === 'false') return json({ error: 'Przywracanie danych demonstracyjnych jest wyłączone.' }, 403);
   resetDemoData();

@@ -1,4 +1,4 @@
-import { ROLE_OPTIONS, authMode, json, requireSession } from '@/lib/auth';
+import { authMode, roleOptions, json, requireSession } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { statusList } from '@/lib/domain';
 
@@ -11,5 +11,5 @@ export async function GET() {
   if (session instanceof Response) return session;
   const mode = authMode();
   getDb(); // makes sure the status list is loaded
-  return json({ session, authMode: mode, accounts: mode === 'demo' ? ROLE_OPTIONS : [], statuses: statusList() });
+  return json({ session, authMode: mode, accounts: mode === 'demo' ? roleOptions() : [], statuses: statusList() });
 }
